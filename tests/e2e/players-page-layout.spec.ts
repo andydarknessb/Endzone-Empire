@@ -257,6 +257,43 @@ test('320x700: the first card is 220px or less and nothing scrolls sideways', as
   expect(doc.scrollWidth, `document scrollWidth ${doc.scrollWidth} vs clientWidth ${doc.clientWidth}`).toBeLessThanOrEqual(doc.clientWidth + 1);
 });
 
+// #3057: a pager press moves focus to the list top, so the new page reads from its top, not from the pager.
+// Both cases scroll to the bottom of a three-page list and press "Go to page 2".
+async function pressPageTwoFromBottom(page: Page) {
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.getByRole('button', { name: 'Go to page 2' }).click();
+}
+
+test('390x844: Go to page 2 from the bottom focuses the list top and puts the first card of page 2 in view', async ({ page }) => {
+  await setupPlayersPageLayout(page, { threePages: true });
+  await page.setViewportSize(PHONE);
+  await page.goto(PLAYERS_LAYOUT_URL);
+  await expect(page.getByTestId('player-row-card').first()).toBeVisible();
+  await pressPageTwoFromBottom(page);
+  const card = page.getByTestId('player-row-card').first();
+  await expect(card).toContainText('Pager Player 11');
+  await expect(page.getByTestId('player-pool-top')).toBeFocused();
+  const box = await card.boundingBox();
+  expect(box, 'the first card must have a measurable box').not.toBeNull();
+  expect(box!.y, `first card top ${box!.y} on page 2`).toBeGreaterThanOrEqual(0);
+  expect(box!.y, `first card top ${box!.y} on page 2`).toBeLessThanOrEqual(PHONE.height);
+});
+
+test('1440x900: Go to page 2 from the bottom focuses the list top, and the list top is in view', async ({ page }) => {
+  await setupPlayersPageLayout(page, { threePages: true });
+  await page.setViewportSize(DESKTOP);
+  await page.goto(PLAYERS_LAYOUT_URL);
+  await expect(page.getByTestId('player-row')).toHaveCount(10);
+  await pressPageTwoFromBottom(page);
+  await expect(page.getByTestId('player-row').first()).toContainText('Pager Player 11');
+  const top = page.getByTestId('player-pool-top');
+  await expect(top).toBeFocused();
+  const box = await top.boundingBox();
+  expect(box, 'the list top must have a measurable box').not.toBeNull();
+  expect(box!.y, `list top ${box!.y} on page 2`).toBeGreaterThanOrEqual(0);
+  expect(box!.y, `list top ${box!.y} on page 2`).toBeLessThanOrEqual(DESKTOP.height);
+});
+
 // Play-select (spec #2453): the page has no cursor and no filled action, never scrolls sideways, and
 // every button is 44px, or 36px inside the desktop table.
 /** Cursors, filled actions, page overflow, and every visible button/link below its minimum. */

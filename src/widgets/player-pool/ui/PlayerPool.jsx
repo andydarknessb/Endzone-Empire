@@ -45,7 +45,8 @@ const AVAILABILITY_FILTERS = [
  * one has superseded sets and reports nothing (#3054). `ref.refresh()` re-reads
  * the list after a caller's action. Until a read settles the list draws skeleton rows
  * (`player-pool-loading`); the empty message, pager and count wait for a settled read, and `aria-busy`
- * marks a read in flight (#3056).
+ * marks a read in flight (#3056). A pager press focuses the list top and scrolls it to the viewport top; no other
+ * control moves focus (#3057).
  *
  * `byeWeekFilter`: renders a Bye week control (`?bye=`, one week) that sends
  * `byeWeeks`, the read's include-only filter; off by default, so the Players
@@ -111,6 +112,8 @@ const PlayerPool = forwardRef(function PlayerPool(
   // The number of the latest read started. A read that settles after a newer one
   // started sets and reports nothing (#3054).
   const latestRead = useRef(0);
+  // The list's top: a pager press focuses it after writing `page` (#3057). Only the pager does.
+  const topRef = useRef(null);
 
   // The selected league's own roster template, through the shared league hook
   // (#1419). No league selected reads as an absent template too.
@@ -302,7 +305,15 @@ const PlayerPool = forwardRef(function PlayerPool(
       showPager={showPager}
       totalPages={totalPages}
       pageNumber={pageNumber}
-      onPage={(value) => updateParams({ page: value })}
+      onPage={(value) => {
+        updateParams({ page: value });
+        // Pressing the page already shown changes no page, so it moves no focus (#3057).
+        if (value === pageNumber) return;
+        // focus() alone brings a tall list's bottom into view, so the list is scrolled to its top too (#3057).
+        topRef.current?.focus({ preventScroll: true });
+        topRef.current?.scrollIntoView?.({ block: 'start', behavior: 'instant' });
+      }}
+      topRef={topRef}
       totalPlayers={totalPlayers}
       search={search}
     />

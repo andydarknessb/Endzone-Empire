@@ -68,3 +68,28 @@ test('stickyHead changes the scroll region and the table markup, and without it 
   expect(screen.getByRole('region', { name: 'Players, scrollable' }).className).not.toBe(plain.region);
   expect(screen.getByRole('table', { name: 'Players' }).className).not.toBe(plain.table);
 });
+
+// #3057: the pager moves focus to the list top once the page param is written; the filters do not.
+test('pressing Go to page 2 focuses the list top, and changing Position leaves focus on the select', async () => {
+  apiClient.get.mockResolvedValue({ data: { players: [player], totalPages: 3, total: 25, context: null } });
+  renderPool();
+  await screen.findByText('Patrick Mahomes');
+  fireEvent.click(screen.getByRole('button', { name: 'Go to page 2' }));
+  await waitFor(() => expect(reads().at(-1)[1].params).toMatchObject({ page: 2 }));
+  expect(screen.getByTestId('player-pool-top')).toHaveFocus();
+
+  const position = screen.getByRole('combobox', { name: 'Position' });
+  position.focus();
+  fireEvent.change(position, { target: { value: 'QB' } });
+  await waitFor(() => expect(reads().at(-1)[1].params).toMatchObject({ position: 'QB' }));
+  expect(position).toHaveFocus();
+});
+
+// #3057: pressing the page already shown changes no page, so it moves no focus.
+test('pressing the page already shown moves no focus', async () => {
+  apiClient.get.mockResolvedValue({ data: { players: [player], totalPages: 3, total: 25, context: null } });
+  renderPool();
+  await screen.findByText('Patrick Mahomes');
+  fireEvent.click(screen.getByRole('button', { name: 'page 1' }));
+  expect(screen.getByTestId('player-pool-top')).not.toHaveFocus();
+});
