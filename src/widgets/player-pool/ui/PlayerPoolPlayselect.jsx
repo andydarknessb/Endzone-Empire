@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Drawer, Pagination } from '@mui/material';
 import { SegmentedControl } from '../../../shared/ui';
 import {
-  BODY_FONT, Frame, FrameHead, PixelHeading, PsButton,
+  BODY_FONT, Frame, FrameHead, PixelHeading, PsButton, Skel,
 } from '../../../shared/ui/playselect';
 import {
   PsCheck, PsField, PsIconButton, PsPageItem, PsSelect,
@@ -30,6 +30,7 @@ export default function PlayerPoolPlayselect({
   availabilityLock, availabilityFilter, availabilityOptions, onAvailability,
   leadingControl, afterAvailabilityControl,
   visiblePlayers, renderRow, renderTableHead, columnCount, bestBall, currentWeek, emptyCopy,
+  loading, placeholder, showEmpty, showPager,
   totalPages, pageNumber, onPage, totalPlayers, search, stickyHead = false,
 }) {
   const searchField = (
@@ -96,6 +97,13 @@ export default function PlayerPoolPlayselect({
     </Box>
   );
 
+  // The skeleton rows a loading list holds (#3056): Skel blocks, hidden from assistive tech.
+  const skeleton = (
+    <Box data-testid="player-pool-loading" sx={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '16px 20px' }}>
+      {[100, 88, 94, 80, 90, 84].map((pct) => <Skel key={pct} width={`${pct}%`} height={20} />)}
+    </Box>
+  );
+
   const pager = (
     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '16px' }}>
       <Pagination
@@ -105,7 +113,7 @@ export default function PlayerPoolPlayselect({
         renderItem={(item) => <PsPageItem item={item} />}
         sx={{ '& ul': { gap: '6px' } }}
       />
-      <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>
+      <Box component="span" role="status" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>
         {`${totalPlayers} player${totalPlayers === 1 ? '' : 's'}${search ? ` matching “${search}”` : ''}`}
       </Box>
     </Box>
@@ -143,13 +151,14 @@ export default function PlayerPoolPlayselect({
       <>
         {phoneBar}
         {drawer}
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {visiblePlayers.length === 0 && empty}
+        <Box aria-busy={loading} sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {placeholder && skeleton}
+          {showEmpty && empty}
           {visiblePlayers.map((player) => (
             <React.Fragment key={player.id}>{renderRow(player, 'card')}</React.Fragment>
           ))}
         </Box>
-        {pager}
+        {showPager && pager}
       </>
     );
   }
@@ -169,6 +178,7 @@ export default function PlayerPoolPlayselect({
           <Box
             component="table"
             aria-label="Players"
+            aria-busy={loading}
             sx={{
               width: '100%',
               borderCollapse: 'separate',
@@ -183,7 +193,10 @@ export default function PlayerPoolPlayselect({
           >
             <thead>{renderTableHead({ bestBall, currentWeek })}</thead>
             <tbody>
-              {visiblePlayers.length === 0 && (
+              {placeholder && (
+                <tr><Box component="td" colSpan={columnCount} sx={{ padding: 0 }}>{skeleton}</Box></tr>
+              )}
+              {showEmpty && (
                 <tr><Box component="td" colSpan={columnCount} sx={{ padding: 0 }}>{empty}</Box></tr>
               )}
               {visiblePlayers.map((player) => (
@@ -192,7 +205,7 @@ export default function PlayerPoolPlayselect({
             </tbody>
           </Box>
         </Box>
-        {pager}
+        {showPager && pager}
       </Frame>
     </>
   );

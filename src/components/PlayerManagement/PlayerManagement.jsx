@@ -38,6 +38,8 @@ function PlayerManagement() {
   const [players, setPlayers] = useState([]);
   const [context, setContext] = useState(null);
   const [error, setError] = useState(null);
+  // The player list's own failed read (#3056): the one panel that offers Try again.
+  const [listError, setListError] = useState(null);
   const [quickViewId, setQuickViewId] = useState(null);
   const poolRef = useRef(null);
   // Formal review round 1, f3: the Decision card's free-agent action bar
@@ -375,6 +377,13 @@ function PlayerManagement() {
       {error && (
         <ErrorPanel title="Something went wrong" body={error} />
       )}
+      {listError && (
+        <ErrorPanel
+          title="Something went wrong"
+          body={listError}
+          onRetry={() => poolRef.current?.refresh()}
+        />
+      )}
       {leaguesLoaded && leagues.length === 0 && (
         <Box component="p" sx={{ m: 0, fontSize: "16px", color: "var(--ps-dim)" }}>
           You&apos;re not in a fantasy league yet, so players can be browsed but
@@ -403,8 +412,13 @@ function PlayerManagement() {
         onLoaded={({ players: nextPlayers, context: nextContext }) => {
           setPlayers(nextPlayers);
           setContext(nextContext);
+          setListError(null);
         }}
-        onError={setError}
+        onError={(message) => {
+          // A read starting clears the page's refusal, as it always did; the list's own failure stays until a read succeeds.
+          if (message === null) setError(null);
+          else setListError(message);
+        }}
         leadingControl={(layout) => {
           const row = layout === "row";
           return (

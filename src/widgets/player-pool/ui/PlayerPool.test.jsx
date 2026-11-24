@@ -141,6 +141,64 @@ test("a held older read that rejects after a newer one resolved reports nothing"
   expect(screen.getByText("Josh Allen")).toBeInTheDocument();
 });
 
+test("while the first read is held, the list is loading: skeleton rows, aria-busy, no empty message, pager or count", async () => {
+  const held = deferred();
+  apiClient.get.mockReturnValue(held.promise);
+  renderPool();
+  expect(screen.getByTestId("player-pool-loading")).toBeInTheDocument();
+  expect(screen.getByRole("table", { name: "Players" })).toHaveAttribute("aria-busy", "true");
+  expect(screen.queryByText("No players found")).not.toBeInTheDocument();
+  expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+  expect(screen.queryByText(/^\d+ players?/)).not.toBeInTheDocument();
+  await act(async () => held.resolve(page([])));
+  expect(screen.queryByTestId("player-pool-loading")).not.toBeInTheDocument();
+  expect(screen.getByText("No players found")).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("0 players");
+});
+
+test("a later read keeps the rows on screen and marks the list aria-busy until it lands", async () => {
+  const ref = createRef();
+  const held = deferred();
+  apiClient.get.mockResolvedValueOnce(page([josh])).mockReturnValueOnce(held.promise);
+  renderPool({ ref });
+  expect(await screen.findByText("Josh Allen")).toBeInTheDocument();
+  const table = screen.getByRole("table", { name: "Players" });
+  expect(table).not.toHaveAttribute("aria-busy", "true");
+  act(() => {
+    ref.current.refresh();
+  });
+  expect(table).toHaveAttribute("aria-busy", "true");
+  expect(screen.getByText("Josh Allen")).toBeInTheDocument();
+  expect(screen.queryByTestId("player-pool-loading")).not.toBeInTheDocument();
+  await act(async () => held.resolve(page([josh])));
+  expect(table).not.toHaveAttribute("aria-busy", "true");
+  expect(screen.getByText("Josh Allen")).toBeInTheDocument();
+});
+
+test("a first read that rejects draws neither the skeleton nor the empty message", async () => {
+  const onError = jest.fn();
+  apiClient.get.mockRejectedValue(new Error("boom"));
+  renderPool({ onError });
+  await waitFor(() => expect(onError).toHaveBeenCalledTimes(2));
+  expect(screen.queryByTestId("player-pool-loading")).not.toBeInTheDocument();
+  expect(screen.queryByText("No players found")).not.toBeInTheDocument();
+});
+
+test("a failed read with no rows on screen draws no empty message, pager or count", async () => {
+  const ref = createRef();
+  const onError = jest.fn();
+  apiClient.get.mockResolvedValueOnce(page([])).mockRejectedValueOnce(new Error("boom"));
+  renderPool({ ref, onError });
+  expect(await screen.findByText("No players found")).toBeInTheDocument();
+  act(() => {
+    ref.current.refresh();
+  });
+  await waitFor(() => expect(onError).toHaveBeenLastCalledWith(expect.any(String)));
+  expect(screen.queryByText("No players found")).not.toBeInTheDocument();
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+});
+
 test("ref.refresh() starts a read that supersedes the one before it", async () => {
   const ref = createRef();
   const held = deferred();
