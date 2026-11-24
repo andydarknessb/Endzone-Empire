@@ -752,6 +752,41 @@ test("a load refusal carrying a code beside a message renders the message, not t
   expect(screen.queryByText("PLAYER_INDEX_UNAVAILABLE")).not.toBeInTheDocument();
 });
 
+// #3056: a failed player-list read has its own alert, with Try again re-reading the list; a failed
+// league-list read keeps its alert and offers no retry.
+test("a failed player-list read shows an alert with Try again, and Try again re-reads the list (#3056)", async () => {
+  mockBrowser();
+  const listGet = apiClient.get.getMockImplementation();
+  let listReads = 0;
+  apiClient.get.mockImplementation((url, config) =>
+    url === "/api/players" && listReads++ === 0
+      ? Promise.reject(new Error("the player list is down"))
+      : listGet(url, config),
+  );
+  renderWithProviders(<PlayerManagement />);
+
+  const alert = await screen.findByRole("alert");
+  const playerReads = () => apiClient.get.mock.calls.filter(([url]) => url === "/api/players").length;
+  const readsBefore = playerReads();
+  await userEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+
+  expect(await screen.findByText("Patrick Mahomes")).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(playerReads()).toBe(readsBefore + 1);
+});
+
+test("a failed league-list read keeps its alert and offers no Try again (#3056)", async () => {
+  mockBrowser();
+  const listGet = apiClient.get.getMockImplementation();
+  apiClient.get.mockImplementation((url, config) =>
+    url === "/api/league" ? Promise.reject(new Error("the leagues are down")) : listGet(url, config),
+  );
+  renderWithProviders(<PlayerManagement />);
+
+  const alert = await screen.findByRole("alert");
+  expect(within(alert).queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+});
+
 // Issue #1002 acceptance criterion 2 / #1310: the Sort dropdown still
 // translates a sortFields KEY to the server's wire name at the fetch site,
 // unaffected by this ticket's removal of the old per-column header sort
