@@ -14,13 +14,23 @@ export const PLAYERS_LAYOUT_LEAGUE_NAME = 'Layout Guard League';
 const ROSTER_COUNT = 16;
 const ROSTER_CAPACITY = 16;
 
-type Seed = { name: string; position: string; state: string; teamName?: string; weeksReason?: string };
+type Seed = {
+  name: string; position: string; state: string; teamName?: string; weeksReason?: string; injury?: string; noNflTeam?: boolean;
+};
 
 // A player Unavailable for the whole season (no NFL team, practice squad):
 // every week carries the reason code and no number (ADR 0040).
 const SEASON_UNAVAILABLE_SEEDS: Seed[] = [
   { name: 'Ethan Fernea', position: 'WR', state: 'free_agent', weeksReason: 'no_team' },
   { name: 'Michael Trigg', position: 'TE', state: 'free_agent', weeksReason: 'practice_squad' },
+];
+
+// `longNames` swaps the last three seeds for long names with injury tags and a player with no NFL team:
+// the Player column's truncation case (#3055).
+const LONG_NAME_SEEDS: Seed[] = [
+  { name: 'Marquez Valdes-Scantling', position: 'WR', state: 'free_agent', injury: 'Q' },
+  { name: 'Clyde Edwards-Helaire', position: 'RB', state: 'waivers', injury: 'O' },
+  { name: 'Kenneth Walker-Richardson', position: 'RB', state: 'free_agent', noNflTeam: true },
 ];
 
 const SEEDS: Seed[] = [
@@ -61,9 +71,9 @@ function cardsPlayer(seed: Seed, index: number) {
     id: 9100 + index,
     name: seed.name,
     position: seed.position,
-    nfl_team: 'GB',
+    nfl_team: seed.noNflTeam ? null : 'GB',
     photo_url: null,
-    injury_status: null,
+    injury_status: seed.injury ?? null,
     bye_week: 9,
     availability: {
       state,
@@ -118,8 +128,10 @@ async function fulfilApi(route: Route, seeds: Seed[]) {
 /**
  * `seasonUnavailable` swaps the last two players for two Unavailable every
  * week, still ten rows, so the Weeks strip's all-reason form is on the page.
+ * `longNames` swaps the last three for LONG_NAME_SEEDS, still ten rows.
  */
-export async function setupPlayersPageLayout(page: Page, { seasonUnavailable = false } = {}) {
-  const seeds = seasonUnavailable ? [...SEEDS.slice(0, -2), ...SEASON_UNAVAILABLE_SEEDS] : SEEDS;
+export async function setupPlayersPageLayout(page: Page, { seasonUnavailable = false, longNames = false } = {}) {
+  const base = longNames ? [...SEEDS.slice(0, -3), ...LONG_NAME_SEEDS] : SEEDS;
+  const seeds = seasonUnavailable ? [...base.slice(0, -2), ...SEASON_UNAVAILABLE_SEEDS] : base;
   await page.route('**/api/**', (route) => fulfilApi(route, seeds));
 }
