@@ -31,11 +31,11 @@ export default function PlayerPoolPlayselect({
   leadingControl, afterAvailabilityControl,
   visiblePlayers, renderRow, renderTableHead, columnCount, bestBall, currentWeek, emptyCopy,
   loading, placeholder, showEmpty, showPager,
-  totalPages, pageNumber, onPage, topRef, totalPlayers, search, stickyHead = false,
+  totalPages, pageNumber, onPage, topRef, totalPlayers, search, stickyHead = false, regionClipped = false,
 }) {
   const searchField = (
     <PsField
-      label="Search players"
+      label="Search this list"
       placeholder="Search by name"
       value={searchInput}
       onChange={(event) => setSearchInput(event.target.value)}
@@ -106,9 +106,11 @@ export default function PlayerPoolPlayselect({
 
   const pager = (
     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '16px' }}>
+      {/* The phone pager fits one row: first, current and last pages, no siblings (#3058). */}
       <Pagination
         count={totalPages}
         page={pageNumber}
+        siblingCount={cardLayout ? 0 : 1}
         onChange={(event, value) => onPage(value)}
         renderItem={(item) => <PsPageItem item={item} />}
         sx={{ '& ul': { gap: '6px' } }}
@@ -133,6 +135,9 @@ export default function PlayerPoolPlayselect({
       onClose={() => setFiltersOpen(false)}
       className="ps-root"
       PaperProps={{
+        role: 'dialog',
+        'aria-modal': true,
+        'aria-labelledby': 'player-filters-heading',
         sx: {
           border: '6px double var(--ps-frame)', borderRadius: 0, fontFamily: BODY_FONT, backgroundColor: 'var(--ps-panel)', color: 'var(--ps-ink)', backgroundImage: 'none',
         },
@@ -174,7 +179,8 @@ export default function PlayerPoolPlayselect({
         <Box
           role="region"
           aria-label="Players, scrollable"
-          tabIndex={0}
+          // A tab stop only where it scrolls: not where stickyHead clips it from lg (#3058).
+          tabIndex={regionClipped ? undefined : 0}
           sx={{ overflowX: stickyHead ? { xs: 'auto', lg: 'clip' } : 'auto', position: 'relative', containerType: 'inline-size' }}
         >
           <Box

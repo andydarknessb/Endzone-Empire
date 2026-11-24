@@ -265,7 +265,7 @@ async function pressPageTwoFromBottom(page: Page) {
 }
 
 test('390x844: Go to page 2 from the bottom focuses the list top and puts the first card of page 2 in view', async ({ page }) => {
-  await setupPlayersPageLayout(page, { threePages: true });
+  await setupPlayersPageLayout(page, { pages: 3 });
   await page.setViewportSize(PHONE);
   await page.goto(PLAYERS_LAYOUT_URL);
   await expect(page.getByTestId('player-row-card').first()).toBeVisible();
@@ -280,7 +280,7 @@ test('390x844: Go to page 2 from the bottom focuses the list top and puts the fi
 });
 
 test('1440x900: Go to page 2 from the bottom focuses the list top, and the list top is in view', async ({ page }) => {
-  await setupPlayersPageLayout(page, { threePages: true });
+  await setupPlayersPageLayout(page, { pages: 3 });
   await page.setViewportSize(DESKTOP);
   await page.goto(PLAYERS_LAYOUT_URL);
   await expect(page.getByTestId('player-row')).toHaveCount(10);
@@ -362,6 +362,34 @@ for (const width of [1440, 1200]) {
     expect(edges.table, `table right ${edges.table} vs region right ${edges.region}`).toBeLessThanOrEqual(edges.region + 0.5);
   });
 }
+
+// #3058: the list region is a tab stop only where it scrolls: below lg, or at any width without stickyHead.
+test('1440x900: the Players, scrollable region has no tabindex, since stickyHead clips it from lg', async ({ page }) => {
+  await setupPlayersPageLayout(page);
+  await page.setViewportSize(DESKTOP);
+  await page.goto(PLAYERS_LAYOUT_URL);
+  await expect(page.getByTestId('player-row')).toHaveCount(10);
+  await expect(page.locator('[aria-label="Players, scrollable"]')).not.toHaveAttribute('tabindex');
+});
+
+test('1024x900: the Players, scrollable region is a tab stop where it scrolls', async ({ page }) => {
+  await setupPlayersPageLayout(page);
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await page.goto(PLAYERS_LAYOUT_URL);
+  await expect(page.getByTestId('player-row')).toHaveCount(10);
+  await expect(page.locator('[aria-label="Players, scrollable"]')).toHaveAttribute('tabindex', '0');
+});
+
+// #3058: the phone pager shows the first, current and last pages with no sibling pages, so forty pages fit one row.
+test('390x844: the pager of forty pages sits on one row, every button and the ellipsis sharing one top edge', async ({ page }) => {
+  await setupPlayersPageLayout(page, { pages: 40 });
+  await page.setViewportSize(PHONE);
+  await page.goto(PLAYERS_LAYOUT_URL);
+  await expect(page.getByRole('button', { name: 'Go to next page' })).toBeVisible();
+  const tops = await page.locator('.MuiPagination-ul > li > *').evaluateAll((items) => items.map((item) => item.getBoundingClientRect().top));
+  expect(tops.length, 'the pager has items').toBeGreaterThan(0);
+  expect(Math.max(...tops) - Math.min(...tops), `pager tops ${JSON.stringify(tops)}`).toBeLessThanOrEqual(1);
+});
 
 // Permanent negative control: the probe reports a forced cursor, fill and short button.
 test('negative control: the Play-select probe reports a forced cursor, fill and short button', async ({ page }) => {

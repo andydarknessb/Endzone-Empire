@@ -118,7 +118,7 @@ test("a held older read that resolves after a newer one does not overwrite rows,
   );
   renderPool({ onLoaded }, "/?q=jo");
   await waitFor(() => expect(playerReads()).toHaveLength(1));
-  fireEvent.change(screen.getByRole("textbox", { name: "Search players" }), { target: { value: "josh" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Search this list" }), { target: { value: "josh" } });
   expect(await screen.findByText("Josh Allen")).toBeInTheDocument();
   await act(async () => held.resolve(page([joe], 3)));
   expect(screen.queryByText("Joe Burrow")).not.toBeInTheDocument();
@@ -134,7 +134,7 @@ test("a held older read that rejects after a newer one resolved reports nothing"
   );
   renderPool({ onError }, "/?q=jo");
   await waitFor(() => expect(playerReads()).toHaveLength(1));
-  fireEvent.change(screen.getByRole("textbox", { name: "Search players" }), { target: { value: "josh" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Search this list" }), { target: { value: "josh" } });
   expect(await screen.findByText("Josh Allen")).toBeInTheDocument();
   await act(async () => held.reject(new Error("jo timed out")));
   expect(onError).not.toHaveBeenCalledWith("jo timed out");

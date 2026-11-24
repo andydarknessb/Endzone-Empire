@@ -852,7 +852,7 @@ test("the league list is read once, not again on a filter, search or page change
   await screen.findByTestId("player-row");
 
   await userEvent.click(screen.getByRole("radio", { name: "Free agents" }));
-  await userEvent.type(screen.getByLabelText("Search players"), "smith");
+  await userEvent.type(screen.getByLabelText("Search this list"), "smith");
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith(
       "/api/players",
