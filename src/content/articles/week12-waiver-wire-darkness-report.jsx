@@ -200,7 +200,7 @@ const Body = () => (
         <TR><TD>8</TD><TD><strong>Cam Ward</strong></TD><TD>QB</TD><TD>TEN</TD><TD>19.1 and 22.2 in his last two games.</TD><TD>at JAX</TD><TD>Season</TD><TD>2&ndash;4%</TD><TD>37.3%</TD></TR>
         <TR><TD>9</TD><TD><strong>Geno Smith</strong></TD><TD>QB</TD><TD>NYJ</TD><TD>17 of 21 with 3 TDs, worth 19.4. The Jets are favored in Miami.</TD><TD>at MIA</TD><TD>Superflex stream</TD><TD>2&ndash;4%</TD><TD>16.2%</TD></TR>
         <TR><TD>10</TD><TD><strong>Baker Mayfield</strong></TD><TD>QB</TD><TD>TB</TD><TD>2 TDs and 36 rushing yards at Detroit, worth 19.1.</TD><TD>vs CAR (Mon)</TD><TD>Superflex stream</TD><TD>2&ndash;4%</TD><TD>17.9%</TD></TR>
-        <TR><TD>11</TD><TD><strong>Tai Felton</strong></TD><TD>WR</TD><TD>MIN</TD><TD>6 for 42 on 12 targets, a 28% share, with Addison out.</TD><TD>vs ATL</TD><TD>While Addison is out</TD><TD>2&ndash;4%</TD><TD>0.2%</TD></TR>
+        <TR><TD>11</TD><TD><strong>Tai Felton</strong></TD><TD>WR</TD><TD>MIN</TD><TD>6 for 42 on 12 targets, a 28% share, with Addison missing the game.</TD><TD>vs ATL</TD><TD>While Addison is out</TD><TD>2&ndash;4%</TD><TD>0.2%</TD></TR>
         <TR><TD>12</TD><TD><strong>Evan Engram</strong></TD><TD>TE</TD><TD>DEN</TD><TD>6 for 74 on 8 targets, a 25% share.</TD><TD>at PIT (Fri)</TD><TD>Stream</TD><TD>2&ndash;4%</TD><TD>2.5%</TD></TR>
         <TR><TD>13</TD><TD><strong>Samaje Perine</strong></TD><TD>RB</TD><TD>CIN</TD><TD>11.9 and 11.7 in his last two. Cincinnati is implied for 30.25.</TD><TD>vs NO</TD><TD>Change of pace</TD><TD>2&ndash;4%</TD><TD>16.9%</TD></TR>
         <TR><TD>14</TD><TD><strong>Chris Rodriguez Jr.</strong></TD><TD>RB</TD><TD>JAX</TD><TD>Tuten aggravated an ankle injury. Jacksonville is implied for 31.0.</TD><TD>vs TEN</TD><TD>If Tuten sits</TD><TD>2&ndash;4%</TD><TD>16.8%</TD></TR>
@@ -240,8 +240,7 @@ const Body = () => (
       </LI>
       <LI>
         <strong>Cam Ward</strong> (TEN, 37.3%) scored 22.2 in the 51-30 loss at Dallas, 21 of 30 for 248 yards
-        and 2 TDs with a rushing TD. Tennessee is at Jacksonville as a 14.5-point underdog, implied for 16.5,
-        the week&apos;s lowest total. He is a start if you need one and third here because of that number.
+        and 2 TDs with a rushing TD. Tennessee is at Jacksonville as a 14.5-point underdog, implied for 16.5, the week&apos;s lowest implied total. He is a start if you need one and third here because of that number.
       </LI>
       <LI>
         <strong>Geno Smith</strong> (NYJ, 16.2%) went 17 of 21 for 176 yards and 3 TDs in the 27-24 win over the
@@ -314,8 +313,7 @@ const Body = () => (
         scored 8 and 2 the last two weeks.
       </LI>
       <LI>
-        <strong>The Giants D/ST</strong> is at Indianapolis (17.5). The Colts scored 3 points at Houston and have a
-        new starting quarterback. The Giants D/ST scored 6 and 8.
+        <strong>The Giants D/ST</strong> is at Indianapolis (17.5). The Colts scored 3 points at Houston, and Anthony Richardson Sr. is first on their chart. The Giants D/ST scored 6 and 8.
       </LI>
       <LI>
         <strong>Washington D/ST</strong> is at Arizona (17.5). Kansas City sacked Josh Johnson three times and held
@@ -422,7 +420,7 @@ const Body = () => (
     </Table>
     <P>
       Tackle-heavy scoring: bump the Tackles tags a tier. Big-play scoring: bump the Big play tags.
-      Rodriguez, Dean and Anderson carry both.
+      Jacob Rodriguez, Nakobe Dean and Zayne Anderson carry both.
     </P>
 
     <H2>The Injury Ledger</H2>
@@ -502,7 +500,7 @@ const Body = () => (
       Also on the record: last week&apos;s column said to avoid Fernando Mendoza, Geno Smith and Aaron Rodgers, and they
       scored 22.9, 19.4 and 16.0. Mendoza and Smith are on this week&apos;s board, and I own all three calls. I called
       Justin Herbert a stream and he scored 22.4. I listed Antonio Williams as a touchdown trap on a 6% share, and he
-      caught 9 for 122. I said to cut Chris Rodriguez Jr., and he is back on the board as Tuten&apos;s handcuff. The
+      caught 9 for 122. I said to cut Chris Rodriguez Jr. and Kaleb Johnson, and both are back on the board as handcuffs. The
       avoids that held: Kyle McCord scored 3.0 and Daniel Jones 4.1, and Jones was released.
     </P>
     <H3>The lesson</H3>
@@ -539,7 +537,7 @@ const Body = () => (
       Young (CIN WR, 2 targets, a 5% share), Brian Thomas Jr. (JAX WR, 31.5% rostered, 3 targets, a 7% share),
       KaVontae Turpin (DAL WR, a rushing TD on 2 carries and no catch), Ian Thomas (LV TE, 1 target), Adam Trautman
       (DEN TE, 1 target) and Brevyn Spann-Ford (DAL TE, 2 targets). Max Hurleman (PIT WR) caught 6 for 61 on 7
-      targets, with the TD in the final two minutes and Pittman expected back Friday. I want to see it twice.
+      targets, with the TD in the final two minutes and Pittman possibly back Friday. I want to see it twice.
     </P>
     <H3>Rule 2: Buy the job</H3>
     <P>
@@ -564,8 +562,7 @@ const Body = () => (
     <H3>Rule 5: In superflex, a starter is a starter</H3>
     <P>
       Mendoza, Smith and Rodgers were on my avoid list and scored 58.3 between them. The four quarterbacks on the
-      board scored 61.6. Six quarterbacks are on this week&apos;s board, and Richardson and DeVito are new starters at
-      under 1% rostered. If your league starts two, roster them before you need them.
+      board scored 61.6. Six quarterbacks are on this week&apos;s board. Richardson is first on the Colts&apos; chart, Mike Vrabel says DeVito is New England&apos;s starter, and both are under 1% rostered. If your league starts two, roster them before you need them.
     </P>
     <Quote>
       Buy the job. Rent the window. Roster the starter.
@@ -581,7 +578,7 @@ const Body = () => (
       <LI><strong>Kaelon Black</strong>: 6 carries for 8, at 38.0%. <strong>J.K. Dobbins</strong>: 1 carry while Jonah Coleman had 24, at 63.5%.</LI>
       <LI><strong>Daniel Jones</strong>: released, at 10.3%. <strong>Brandon Aiyuk</strong>: released, at 6.8%. <strong>Drew Lock</strong>: Seattle plans to start Darnold, at 10.8%.</LI>
       <LI><strong>Tank Dell</strong>: 4 targets for the second week running, at 60.6%. Cut him if you need the spot.</LI>
-      <LI><strong>Hold</strong> Jordyn Tyson and Courtland Sutton for one more week. Tyson had 13 targets a week ago, and Sutton had a 26% share in his last game before the bye.</LI>
+      <LI><strong>Hold</strong> Jordyn Tyson and Courtland Sutton for one more week. Tyson had 13 targets in Week 10, and Sutton had a 26% share in his last game before the bye.</LI>
       <LI><strong>Hold</strong> Chig Okonkwo. Hold Lamar Jackson and Davante Adams in IR slots, and Drake Maye only if your league gives an IR slot to a player listed out.</LI>
     </UL>
 
@@ -592,7 +589,7 @@ const Body = () => (
       <LI><strong>Antonio Williams</strong> at 8&ndash;12%.</LI>
       <LI><strong>Jack Bech</strong> at 4&ndash;7%.</LI>
       <LI>Superflex: <strong>Fernando Mendoza</strong> at 3&ndash;6% and <strong>Deshaun Watson</strong> at 3&ndash;5%, then <strong>Cam Ward</strong>, <strong>Geno Smith</strong> and <strong>Baker Mayfield</strong> at 2&ndash;4% ($1 each in 1QB).</LI>
-      <LI><strong>Justice Hill</strong> at 3&ndash;5%, and <strong>Kaleb Johnson</strong> at 2&ndash;4% if Jacobs is trending out. He plays Wednesday night.</LI>
+      <LI><strong>Justice Hill</strong> at 3&ndash;5%, and <strong>Kaleb Johnson</strong> at 2&ndash;4% in case Jacobs sits. He plays Wednesday night.</LI>
       <LI><strong>Tai Felton</strong>, <strong>Evan Engram</strong>, <strong>Samaje Perine</strong> and <strong>Chris Rodriguez Jr.</strong> at 2&ndash;4%.</LI>
       <LI>The rest of the Full Board at the ranges listed, and $1 on DJ Giddens.</LI>
     </OL>
