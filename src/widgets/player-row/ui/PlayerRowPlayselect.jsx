@@ -32,7 +32,7 @@ const CELL = {
 
 // The row variant's name and team line take the width the cell leaves them and end in an ellipsis (#3055).
 // No minWidth: a flex item's automatic minimum is 0 only while overflow is not visible.
-const TRUNCATE = { overflow: 'hidden', textOverflow: 'ellipsis' };
+const ELLIPSIS = { overflow: 'hidden', textOverflow: 'ellipsis' };
 
 function NameButton({ player, onOpenPlayer, wrap = false }) {
   return (
@@ -61,7 +61,7 @@ function NameButton({ player, onOpenPlayer, wrap = false }) {
         textAlign: 'left',
         cursor: 'pointer',
         whiteSpace: wrap ? 'normal' : 'nowrap',
-        ...(wrap ? null : TRUNCATE),
+        ...(wrap ? null : ELLIPSIS),
       }}
     >
       {player.name}
@@ -81,7 +81,7 @@ function Identity({ player, onOpenPlayer, wrap }) {
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: wrap ? 'wrap' : 'nowrap', gap: '4px 8px', fontSize: '13px', color: 'var(--ps-dim)' }}>
           <PosTag position={player.position} />
-          <Box component="span" sx={wrap ? undefined : TRUNCATE}>{player.nfl_team || 'NFL team unavailable'}</Box>
+          <Box component="span" sx={wrap ? undefined : ELLIPSIS}>{player.nfl_team || 'NFL team unavailable'}</Box>
           {opponent && <span data-testid="player-row-opponent">{opponent}</span>}
         </Box>
       </Box>
