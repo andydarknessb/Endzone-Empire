@@ -84,3 +84,12 @@ test('pressing Go to page 2 focuses the list top, and changing Position leaves f
   await waitFor(() => expect(reads().at(-1)[1].params).toMatchObject({ position: 'QB' }));
   expect(position).toHaveFocus();
 });
+
+// #3057: pressing the page already shown changes no page, so it moves no focus.
+test('pressing the page already shown moves no focus', async () => {
+  apiClient.get.mockResolvedValue({ data: { players: [player], totalPages: 3, total: 25, context: null } });
+  renderPool();
+  await screen.findByText('Patrick Mahomes');
+  fireEvent.click(screen.getByRole('button', { name: 'page 1' }));
+  expect(screen.getByTestId('player-pool-top')).not.toHaveFocus();
+});

@@ -307,6 +307,8 @@ const PlayerPool = forwardRef(function PlayerPool(
       pageNumber={pageNumber}
       onPage={(value) => {
         updateParams({ page: value });
+        // Pressing the page already shown changes no page, so it moves no focus (#3057).
+        if (value === pageNumber) return;
         // focus() alone brings a tall list's bottom into view, so the list is scrolled to its top too (#3057).
         topRef.current?.focus({ preventScroll: true });
         topRef.current?.scrollIntoView?.({ block: 'start', behavior: 'instant' });
