@@ -133,6 +133,84 @@ test('1440x900: a player Unavailable every week keeps the Weeks strip as narrow 
   expect(container!.scrollWidth, `table container ${JSON.stringify(container)}`).toBeLessThanOrEqual(container!.clientWidth + 1);
 });
 
+// #3055: in the table at 900 to 1199px a long name or team line truncates inside the Player column, and the
+// same long name is whole at 1440. The Player cell predicate is the one the negative control below shares.
+const LONG_NAME = 'Marquez Valdes-Scantling';
+
+/** Each body row's Player cell: elements under it that stick out past its right edge, and injury tags outside it. */
+function probePlayerCells() {
+  const rows = Array.from(document.querySelectorAll('[data-testid="player-row"]'));
+  const overflowing: string[] = [];
+  const tagsOutside: string[] = [];
+  let tags = 0;
+  for (const row of rows) {
+    const cell = row.firstElementChild as HTMLElement;
+    const edge = cell.getBoundingClientRect();
+    for (const el of Array.from(cell.querySelectorAll('*'))) {
+      if (el.getBoundingClientRect().right > edge.right + 1) overflowing.push(`${el.tagName} ${(el.textContent || '').trim().slice(0, 30)}`);
+    }
+    for (const tag of Array.from(cell.querySelectorAll('[data-status]'))) {
+      tags += 1;
+      const box = tag.getBoundingClientRect();
+      if (box.left < edge.left - 1 || box.right > edge.right + 1) tagsOutside.push(tag.getAttribute('data-status') || '');
+    }
+  }
+  return { rows: rows.length, tags, overflowing, tagsOutside };
+}
+
+async function openLongNames(page: Page, width: number) {
+  await setupPlayersPageLayout(page, { longNames: true });
+  await page.setViewportSize({ width, height: 900 });
+  await page.goto(PLAYERS_LAYOUT_URL);
+  await expect(page.getByTestId('player-row')).toHaveCount(10);
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+}
+
+test('1024x900: a long name, a team line with no NFL team and injury tags stay inside the Player cell', async ({ page }) => {
+  await openLongNames(page, 1024);
+  const probe = await page.evaluate(probePlayerCells);
+  // eslint-disable-next-line no-console
+  console.log(`PLAYERS_LAYOUT_PLAYER_CELL ${JSON.stringify(probe)}`);
+  expect(probe.rows).toBe(10);
+  expect(probe.tags, 'the Q and O injury tags are measured').toBe(2);
+  expect(probe.overflowing, 'elements past the Player cell edge').toEqual([]);
+  expect(probe.tagsOutside, 'injury tags outside the Player cell').toEqual([]);
+});
+
+test('negative control: forcing overflow visible on one long name turns the Player cell predicate red, then green again', async ({ page }) => {
+  await openLongNames(page, 1024);
+  expect((await page.evaluate(probePlayerCells)).overflowing).toEqual([]);
+
+  await page.evaluate((name) => {
+    const row = Array.from(document.querySelectorAll('[data-testid="player-row"]')).find((r) => r.textContent?.includes(name));
+    const button = row?.querySelector('th button') as HTMLElement;
+    button.style.overflow = 'visible';
+    button.style.textOverflow = 'clip';
+  }, LONG_NAME);
+  const during = await page.evaluate(probePlayerCells);
+  expect(during.overflowing.length, 'the forced name sticks out of its cell').toBeGreaterThan(0);
+
+  await page.evaluate((name) => {
+    const row = Array.from(document.querySelectorAll('[data-testid="player-row"]')).find((r) => r.textContent?.includes(name));
+    const button = row?.querySelector('th button') as HTMLElement;
+    button.style.overflow = '';
+    button.style.textOverflow = '';
+  }, LONG_NAME);
+  expect((await page.evaluate(probePlayerCells)).overflowing).toEqual([]);
+});
+
+test('1440x900: the long name is not truncated (its button scrolls no wider than it is)', async ({ page }) => {
+  await openLongNames(page, 1440);
+  const name = await page.evaluate((text) => {
+    const button = Array.from(document.querySelectorAll('[data-testid="player-row"] th button')).find((b) => b.textContent === text) as HTMLElement | undefined;
+    return button ? { scrollWidth: button.scrollWidth, clientWidth: button.clientWidth } : null;
+  }, LONG_NAME);
+  // eslint-disable-next-line no-console
+  console.log(`PLAYERS_LAYOUT_LONG_NAME_1440 ${JSON.stringify(name)}`);
+  expect(name, 'the long name renders as a button').not.toBeNull();
+  expect(name!.scrollWidth, `name scrollWidth ${name!.scrollWidth} vs clientWidth ${name!.clientWidth}`).toBeLessThanOrEqual(name!.clientWidth);
+});
+
 // Permanent negative control (the pattern players-list.spec.ts uses for
 // width): proves the row height predicate can still go red, so a quietly
 // broken assertion doesn't read as a clean pass forever.
