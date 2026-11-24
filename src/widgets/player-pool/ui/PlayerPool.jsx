@@ -82,11 +82,9 @@ const PlayerPool = forwardRef(function PlayerPool(
   const [players, setPlayers] = useState([]);
   const [totalPages, setTotalPages] = useState(1);
   const [totalPlayers, setTotalPlayers] = useState(0);
-  // What the reads have told the list (#3056): `settled` once any read has settled since mount, `landed`
-  // once one has succeeded, `lastOk` for the latest settled read, `busy` while a read is in flight.
-  const [readState, setReadState] = useState({
-    settled: false, landed: false, lastOk: false, busy: false,
-  });
+  // What the reads have told the list (#3056): `settled` once any read has settled since mount, `lastOk`
+  // for the latest settled read, `busy` while a read is in flight.
+  const [readState, setReadState] = useState({ settled: false, lastOk: false, busy: false });
   const [filtersOpen, setFiltersOpen] = useState(false);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -206,7 +204,7 @@ const PlayerPool = forwardRef(function PlayerPool(
       setPlayers(nextPlayers);
       setTotalPages(response.data.totalPages || 1);
       setTotalPlayers(response.data.total ?? 0);
-      setReadState({ settled: true, landed: true, lastOk: true, busy: false });
+      setReadState({ settled: true, lastOk: true, busy: false });
       onLoadedRef.current?.({
         players: nextPlayers,
         context: response.data.context || null,
@@ -214,9 +212,7 @@ const PlayerPool = forwardRef(function PlayerPool(
       });
     } catch (err) {
       if (read !== latestRead.current) return;
-      setReadState((state) => ({
-        ...state, settled: true, lastOk: false, busy: false,
-      }));
+      setReadState({ settled: true, lastOk: false, busy: false });
       onErrorRef.current?.(readHttpFailure(err).message || err.message);
     }
   }, [
@@ -251,11 +247,12 @@ const PlayerPool = forwardRef(function PlayerPool(
   const visiblePlayers = watchingOnly ? players.filter((player) => player.watching) : players;
   // Loading: no read has settled, or a read is in flight with no rows on screen. The skeleton holds the
   // list then; the empty message and the pager and count wait for a settled read (#3056).
-  const { settled, landed, lastOk, busy } = readState;
+  const { settled, lastOk, busy } = readState;
   const loading = !settled || busy;
   const placeholder = !settled || (busy && visiblePlayers.length === 0);
   const showEmpty = !placeholder && lastOk && visiblePlayers.length === 0;
-  const showPager = landed && !placeholder && (lastOk || visiblePlayers.length > 0);
+  // Rows only ever come from a successful read, so rows on screen mean one has landed.
+  const showPager = !placeholder && (lastOk || visiblePlayers.length > 0);
   const emptyCopy = emptyCopyOverride && !watchingOnly && !search && !byeWeek
     ? emptyCopyOverride
     : watchingOnly
