@@ -43,7 +43,9 @@ const AVAILABILITY_FILTERS = [
  * can build the Decision card context over the same page of players; `onError`
  * receives the refusal message, or null when a read starts. A read that a newer
  * one has superseded sets and reports nothing (#3054). `ref.refresh()` re-reads
- * the list after a caller's action.
+ * the list after a caller's action. Until a read settles the list draws skeleton rows
+ * (`player-pool-loading`); the empty message, pager and count wait for a settled read, and `aria-busy`
+ * marks a read in flight (#3056).
  *
  * `byeWeekFilter`: renders a Bye week control (`?bye=`, one week) that sends
  * `byeWeeks`, the read's include-only filter; off by default, so the Players
@@ -80,6 +82,11 @@ const PlayerPool = forwardRef(function PlayerPool(
   const [players, setPlayers] = useState([]);
   const [totalPages, setTotalPages] = useState(1);
   const [totalPlayers, setTotalPlayers] = useState(0);
+  // What the reads have told the list (#3056): `settled` once any read has settled since mount, `landed`
+  // once one has succeeded, `lastOk` for the latest settled read, `busy` while a read is in flight.
+  const [readState, setReadState] = useState({
+    settled: false, landed: false, lastOk: false, busy: false,
+  });
   const [filtersOpen, setFiltersOpen] = useState(false);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -173,6 +180,7 @@ const PlayerPool = forwardRef(function PlayerPool(
     // correctly-filtered one.
     if (selectedLeague && templateNeverLoaded) return;
     const read = ++latestRead.current;
+    setReadState((state) => ({ ...state, busy: true }));
     try {
       onErrorRef.current?.(null);
       const params = {
@@ -198,6 +206,7 @@ const PlayerPool = forwardRef(function PlayerPool(
       setPlayers(nextPlayers);
       setTotalPages(response.data.totalPages || 1);
       setTotalPlayers(response.data.total ?? 0);
+      setReadState({ settled: true, landed: true, lastOk: true, busy: false });
       onLoadedRef.current?.({
         players: nextPlayers,
         context: response.data.context || null,
@@ -205,6 +214,9 @@ const PlayerPool = forwardRef(function PlayerPool(
       });
     } catch (err) {
       if (read !== latestRead.current) return;
+      setReadState((state) => ({
+        ...state, settled: true, lastOk: false, busy: false,
+      }));
       onErrorRef.current?.(readHttpFailure(err).message || err.message);
     }
   }, [
@@ -236,7 +248,14 @@ const PlayerPool = forwardRef(function PlayerPool(
   }, [search]);
 
   const currentWeek = players.find((player) => player.projWeek)?.projWeek?.week;
-    const visiblePlayers = watchingOnly ? players.filter((player) => player.watching) : players;
+  const visiblePlayers = watchingOnly ? players.filter((player) => player.watching) : players;
+  // Loading: no read has settled, or a read is in flight with no rows on screen. The skeleton holds the
+  // list then; the empty message and the pager and count wait for a settled read (#3056).
+  const { settled, landed, lastOk, busy } = readState;
+  const loading = !settled || busy;
+  const placeholder = !settled || (busy && visiblePlayers.length === 0);
+  const showEmpty = !placeholder && lastOk && visiblePlayers.length === 0;
+  const showPager = landed && !placeholder;
   const emptyCopy = emptyCopyOverride && !watchingOnly && !search && !byeWeek
     ? emptyCopyOverride
     : watchingOnly
@@ -280,6 +299,10 @@ const PlayerPool = forwardRef(function PlayerPool(
       bestBall={bestBall}
       currentWeek={currentWeek}
       emptyCopy={emptyCopy}
+      loading={loading}
+      placeholder={placeholder}
+      showEmpty={showEmpty}
+      showPager={showPager}
       totalPages={totalPages}
       pageNumber={pageNumber}
       onPage={(value) => updateParams({ page: value })}
