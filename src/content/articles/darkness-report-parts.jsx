@@ -396,7 +396,7 @@ export function PriorityCard({ p }) {
   );
 }
 
-// The rows and the axis row under them share these columns, so they must match.
+// The rows and the axis row share these em columns, which resolve against each grid's own font size, so the axis row keeps the rows' font size.
 const FAAB_LADDER_COLUMNS = { xs: 'minmax(0, 13em) minmax(80px, 1fr) 4.6em', sm: '11em 1fr 4em' };
 
 export function FaabLadder({ ladder }) {
@@ -413,9 +413,9 @@ export function FaabLadder({ ladder }) {
           <Box component="span" sx={{ textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{min}&ndash;{max}%</Box>
         </Box>
       ))}
-      <Box aria-hidden="true" sx={{ display: 'grid', gridTemplateColumns: FAAB_LADDER_COLUMNS, gap: 1, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+      <Box aria-hidden="true" sx={{ display: 'grid', gridTemplateColumns: FAAB_LADDER_COLUMNS, gap: 1, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
         <span />
-        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}><span>0%</span><span>10%</span><span>20%</span></Box>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem' }}><span>0%</span><span>10%</span><span>20%</span></Box>
         <span />
       </Box>
     </Box>
