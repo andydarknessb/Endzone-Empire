@@ -213,9 +213,9 @@ function FaabLadder() {
           <Box component="span" sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{min}&ndash;{max}%</Box>
         </Box>
       ))}
-      <Box aria-hidden="true" sx={{ display: 'grid', gridTemplateColumns: { xs: '8.5em 1fr 3.6em', sm: '11em 1fr 4em' }, gap: 1, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+      <Box aria-hidden="true" sx={{ display: 'grid', gridTemplateColumns: { xs: '8.5em 1fr 3.6em', sm: '11em 1fr 4em' }, gap: 1, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
         <span />
-        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}><span>0%</span><span>10%</span><span>20%</span></Box>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem' }}><span>0%</span><span>10%</span><span>20%</span></Box>
         <span />
       </Box>
     </Box>
