@@ -255,7 +255,7 @@ const PlayerPool = forwardRef(function PlayerPool(
   const loading = !settled || busy;
   const placeholder = !settled || (busy && visiblePlayers.length === 0);
   const showEmpty = !placeholder && lastOk && visiblePlayers.length === 0;
-  const showPager = landed && !placeholder;
+  const showPager = landed && !placeholder && (lastOk || visiblePlayers.length > 0);
   const emptyCopy = emptyCopyOverride && !watchingOnly && !search && !byeWeek
     ? emptyCopyOverride
     : watchingOnly

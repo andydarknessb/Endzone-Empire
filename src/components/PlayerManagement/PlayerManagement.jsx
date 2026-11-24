@@ -412,11 +412,12 @@ function PlayerManagement() {
         onLoaded={({ players: nextPlayers, context: nextContext }) => {
           setPlayers(nextPlayers);
           setContext(nextContext);
+          setListError(null);
         }}
         onError={(message) => {
-          // A read starting clears the page's refusal, as it always did; the list's failure stays its own.
+          // A read starting clears the page's refusal, as it always did; the list's own failure stays until a read succeeds.
           if (message === null) setError(null);
-          setListError(message);
+          else setListError(message);
         }}
         leadingControl={(layout) => {
           const row = layout === "row";

@@ -1,5 +1,5 @@
 import React from "react";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import renderWithProviders from "../../test-utils/renderWithProviders";
 import apiClient from "../../api/apiClient";
@@ -773,6 +773,32 @@ test("a failed player-list read shows an alert with Try again, and Try again re-
   expect(await screen.findByText("Patrick Mahomes")).toBeInTheDocument();
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   expect(playerReads()).toBe(readsBefore + 1);
+});
+
+test("the list's failed-read panel stays while Try again is in flight, and clears when the read succeeds (#3056)", async () => {
+  mockBrowser();
+  const listGet = apiClient.get.getMockImplementation();
+  let listReads = 0;
+  let releaseRetry;
+  apiClient.get.mockImplementation((url, config) => {
+    if (url !== "/api/players") return listGet(url, config);
+    listReads += 1;
+    if (listReads === 1) return Promise.reject(new Error("the player list is down"));
+    return new Promise((resolve) => {
+      releaseRetry = () => resolve(listGet(url, config));
+    });
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  const alert = await screen.findByRole("alert");
+  const retry = within(alert).getByRole("button", { name: "Try again" });
+  await userEvent.click(retry);
+
+  expect(screen.getByRole("alert")).toBe(alert);
+  expect(retry).toHaveFocus();
+  await act(async () => releaseRetry());
+  expect(await screen.findByText("Patrick Mahomes")).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 
 test("a failed league-list read keeps its alert and offers no Try again (#3056)", async () => {

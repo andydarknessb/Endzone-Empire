@@ -184,6 +184,21 @@ test("a first read that rejects draws neither the skeleton nor the empty message
   expect(screen.queryByText("No players found")).not.toBeInTheDocument();
 });
 
+test("a failed read with no rows on screen draws no empty message, pager or count", async () => {
+  const ref = createRef();
+  const onError = jest.fn();
+  apiClient.get.mockResolvedValueOnce(page([])).mockRejectedValueOnce(new Error("boom"));
+  renderPool({ ref, onError });
+  expect(await screen.findByText("No players found")).toBeInTheDocument();
+  act(() => {
+    ref.current.refresh();
+  });
+  await waitFor(() => expect(onError).toHaveBeenLastCalledWith(expect.any(String)));
+  expect(screen.queryByText("No players found")).not.toBeInTheDocument();
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+});
+
 test("ref.refresh() starts a read that supersedes the one before it", async () => {
   const ref = createRef();
   const held = deferred();
