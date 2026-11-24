@@ -47,11 +47,13 @@ for (const viewport of VIEWPORTS) {
             labelsLeft: labelsBox.left,
             labelsRight: labelsBox.right,
             labelsText: labels.textContent ?? '',
+            labelsFontSize: getComputedStyle(labels).fontSize,
           };
         });
 
         expect.soft(m.rows, 'ladder rows above the axis row').toBeGreaterThan(0);
         expect.soft(m.labelsText, 'axis labels').toBe('0%10%20%');
+        expect.soft(m.labelsFontSize, 'axis labels stay 0.72rem').toBe('11.52px');
         expect.soft(Math.abs(m.labelsLeft - m.trackLeft), 'axis left edge against the bar track').toBeLessThanOrEqual(1);
         expect.soft(Math.abs(m.labelsRight - m.trackRight), 'axis right edge against the bar track').toBeLessThanOrEqual(1);
         expect.soft(Math.abs(m.trackOffset - viewport.trackOffset), 'bar track offset from the chart edge (guard b)').toBeLessThanOrEqual(1);
