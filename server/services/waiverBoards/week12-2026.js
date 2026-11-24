@@ -87,7 +87,7 @@ module.exports = {
       name: 'Tai Felton',
       bidMin: 2,
       bidMax: 4,
-      reason: '6 for 42 on 12 targets, a 28% share, with Addison out.',
+      reason: '6 for 42 on 12 targets, a 28% share, with Addison missing the game.',
     },
     {
       playerId: 156,
