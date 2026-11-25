@@ -2310,7 +2310,7 @@ test('a stale confirmation (the turn moved on while the dialog sat open) never c
   await userEvent.click(within(dialog).getByRole('button', { name: 'Draft Patrick Mahomes' }));
 
   expect(fakeSocket.emit.mock.calls.some(([event]) => event === 'draft:pick')).toBe(false);
-  expect(await screen.findByText(PICK_UNAVAILABLE_EXPLANATION)).toBeInTheDocument();
+  expect(await within(await screen.findByTestId('toast-alert')).findByText(PICK_UNAVAILABLE_EXPLANATION)).toBeInTheDocument();
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 });
 
