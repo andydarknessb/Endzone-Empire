@@ -104,7 +104,7 @@ export default function PlayerPoolPlayselect({
     </Box>
   );
 
-  // The phone pager fits one row: no sibling pages beside the current one (#3058).
+  // The phone pager fits one row: no sibling pages beside the current one (#3058), and a 4px gap so 63 pages fit 360 px (#3088).
   const pager = (
     <Pagination
       count={totalPages}
@@ -112,14 +112,15 @@ export default function PlayerPoolPlayselect({
       siblingCount={cardLayout ? 0 : 1}
       onChange={(event, value) => onPage(value)}
       renderItem={(item) => <PsPageItem item={item} />}
-      sx={{ '& ul': { gap: '6px' } }}
+      sx={{ '& ul': { gap: cardLayout ? '4px' : '6px' } }}
     />
   );
   // The count's status is mounted from the first render and reads its text only while the pager shows (#3067).
   // Past one page it names the page, so a page change is announced; the count alone is the same on every page (#3072).
-  // Hidden, the box is out of flow, so it takes no room and no flex gap.
+  // Hidden, the box is out of flow, so it takes no room and no flex gap. The phone footer has no side padding: the
+  // page gutter alone leaves the 63-page pager room at 360 px; 16px more wraps it (#3088).
   const footer = (
-    <Box sx={showPager ? { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '16px' } : SR_ONLY_SX}>
+    <Box sx={showPager ? { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: cardLayout ? '16px 0' : '16px' } : SR_ONLY_SX}>
       {showPager && pager}
       <Box component="span" role="status" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>
         {showPager ? `${totalPages > 1 ? `Page ${pageNumber} of ${totalPages}, ` : ''}${totalPlayers} player${totalPlayers === 1 ? '' : 's'}${search ? ` matching “${search}”` : ''}` : ''}

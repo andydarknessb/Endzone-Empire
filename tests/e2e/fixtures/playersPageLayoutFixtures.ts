@@ -8,6 +8,7 @@ import { json } from './jsonRoute';
 
 const USER_ID = 61;
 const LEAGUE_ID = 4400;
+export const PLAYERS_LAYOUT_LEAGUE_ID = LEAGUE_ID;
 export const PLAYERS_LAYOUT_URL = '/#/player';
 export const PLAYERS_LAYOUT_LEAGUE_NAME = 'Layout Guard League';
 

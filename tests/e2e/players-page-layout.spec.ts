@@ -11,7 +11,9 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { setTheme } from './fixtures/draftHarness';
-import { setupPlayersPageLayout, PLAYERS_LAYOUT_URL, PLAYERS_LAYOUT_LEAGUE_NAME } from './fixtures/playersPageLayoutFixtures';
+import {
+  setupPlayersPageLayout, PLAYERS_LAYOUT_URL, PLAYERS_LAYOUT_LEAGUE_ID, PLAYERS_LAYOUT_LEAGUE_NAME,
+} from './fixtures/playersPageLayoutFixtures';
 
 const DESKTOP = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844 };
@@ -484,6 +486,40 @@ test('390x844: the pager of forty pages sits on one row, every button and the el
   expect(Math.max(...tops) - Math.min(...tops), `pager tops ${JSON.stringify(tops)}`).toBeLessThanOrEqual(1);
 });
 
+// #3088: the phone pager holds one row down to 360 px at 63 pages (the live list: 1,561 players at 25 a page).
+// PlayerManagement rewrites a URL without `league` to page 1, so each case names the fixture league and asserts the page reached.
+const PHONE_375 = { width: 375, height: 844 };
+const PHONE_360 = { width: 360, height: 800 };
+const pagerUrl = (pageNumber: number) => `${PLAYERS_LAYOUT_URL}?league=${PLAYERS_LAYOUT_LEAGUE_ID}&page=${pageNumber}`;
+for (const [name, viewport] of [['375x844', PHONE_375], ['360x800', PHONE_360]] as const) {
+  for (const pageNumber of [1, 32, 61, 62, 63]) {
+    test(`${name}: the pager of 63 pages sits on one row on page ${pageNumber}`, async ({ page }) => {
+      await setupPlayersPageLayout(page, { pages: 63 });
+      await page.setViewportSize(viewport);
+      await page.goto(pagerUrl(pageNumber));
+      await expect(page.getByRole('button', { name: `page ${pageNumber}`, exact: true })).toHaveAttribute('aria-current', 'page');
+      await page.evaluate(() => document.fonts.ready.then(() => true));
+      const tops = await page.locator('.MuiPagination-ul > li > *').evaluateAll((items) => items.map((item) => item.getBoundingClientRect().top));
+      expect(tops.length, 'the pager has items').toBeGreaterThan(0);
+      expect(Math.max(...tops) - Math.min(...tops), `pager tops ${JSON.stringify(tops)}`).toBeLessThanOrEqual(1);
+    });
+  }
+}
+
+test('360x800: every pager button is at least 44px wide and tall at 63 pages', async ({ page }) => {
+  await setupPlayersPageLayout(page, { pages: 63 });
+  await page.setViewportSize(PHONE_360);
+  await page.goto(pagerUrl(63));
+  await expect(page.getByRole('button', { name: 'page 63', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+  const sizes = await page.locator('.MuiPagination-ul > li > button').evaluateAll((items) => items.map((item) => {
+    const box = item.getBoundingClientRect();
+    return { width: box.width, height: box.height };
+  }));
+  expect(sizes.length, 'the pager has buttons').toBeGreaterThan(0);
+  expect(sizes.filter((s) => s.width < 44 || s.height < 44), `pager button sizes ${JSON.stringify(sizes)}`).toEqual([]);
+});
+
 // Permanent negative control: the probe reports a forced cursor, fill and short button.
 test('negative control: the Play-select probe reports a forced cursor, fill and short button', async ({ page }) => {
   await setupPlayersPageLayout(page);
@@ -512,6 +548,27 @@ test('1440x900: the League select is 44px tall and square, its top level with th
   expect(radius, 'League select border-radius').toBe('0px');
   expect(Math.abs(leagueBox!.y - positionBox!.y), `League top ${leagueBox!.y} vs Position top ${positionBox!.y}`).toBeLessThanOrEqual(1);
   await expect(page.locator('.ps-root .MuiSelect-select')).toHaveCount(0);
+});
+
+// #3088: the selected League name is shown in full, measured in the select's own font against its content box.
+test('1440x900: the League select shows the league name in full', async ({ page }) => {
+  await openDesktop(page);
+  const fit = await page.getByRole('combobox', { name: 'League' }).evaluate((el: HTMLSelectElement) => {
+    const style = getComputedStyle(el);
+    const name = el.selectedOptions[0]?.textContent ?? '';
+    const probe = document.createElement('span');
+    probe.textContent = name;
+    Object.assign(probe.style, {
+      position: 'absolute', whiteSpace: 'nowrap', fontFamily: style.fontFamily, fontSize: style.fontSize, fontWeight: style.fontWeight, letterSpacing: style.letterSpacing,
+    });
+    document.body.appendChild(probe);
+    const textWidth = probe.getBoundingClientRect().width;
+    probe.remove();
+    const contentWidth = el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    return { name, textWidth, contentWidth };
+  });
+  expect(fit.name, 'the selected League option').toBe(PLAYERS_LAYOUT_LEAGUE_NAME);
+  expect(fit.textWidth, `"${fit.name}" is ${fit.textWidth}px, the select's content box ${fit.contentWidth}px`).toBeLessThanOrEqual(fit.contentWidth);
 });
 
 test('390x844: with Filters open the League select is 44px tall, and no MUI select is on the page', async ({ page }) => {
