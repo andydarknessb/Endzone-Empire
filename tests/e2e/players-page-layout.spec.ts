@@ -484,6 +484,37 @@ test('390x844: the pager of forty pages sits on one row, every button and the el
   expect(Math.max(...tops) - Math.min(...tops), `pager tops ${JSON.stringify(tops)}`).toBeLessThanOrEqual(1);
 });
 
+// #3088: the phone pager holds one row down to 360 px at 63 pages (the live list: 1,561 players at 25 a page).
+// The page is in the URL, so the middle and last pages are reached by `?page=`.
+const PHONE_375 = { width: 375, height: 844 };
+const PHONE_360 = { width: 360, height: 800 };
+for (const [name, viewport] of [['375x844', PHONE_375], ['360x800', PHONE_360]] as const) {
+  for (const [label, query] of [['page 1', ''], ['page 32', '?page=32'], ['page 63', '?page=63']] as const) {
+    test(`${name}: the pager of 63 pages sits on one row on ${label}`, async ({ page }) => {
+      await setupPlayersPageLayout(page, { pages: 63 });
+      await page.setViewportSize(viewport);
+      await page.goto(`${PLAYERS_LAYOUT_URL}${query}`);
+      await expect(page.getByRole('button', { name: 'Go to next page' })).toBeVisible();
+      const tops = await page.locator('.MuiPagination-ul > li > *').evaluateAll((items) => items.map((item) => item.getBoundingClientRect().top));
+      expect(tops.length, 'the pager has items').toBeGreaterThan(0);
+      expect(Math.max(...tops) - Math.min(...tops), `pager tops ${JSON.stringify(tops)}`).toBeLessThanOrEqual(1);
+    });
+  }
+}
+
+test('360x800: every pager button is 44px wide and 44px tall at 63 pages', async ({ page }) => {
+  await setupPlayersPageLayout(page, { pages: 63 });
+  await page.setViewportSize(PHONE_360);
+  await page.goto(PLAYERS_LAYOUT_URL);
+  await expect(page.getByRole('button', { name: 'Go to next page' })).toBeVisible();
+  const sizes = await page.locator('.MuiPagination-ul > li > button').evaluateAll((items) => items.map((item) => {
+    const box = item.getBoundingClientRect();
+    return { width: Math.round(box.width), height: Math.round(box.height) };
+  }));
+  expect(sizes.length, 'the pager has buttons').toBeGreaterThan(0);
+  expect(sizes.filter((s) => s.width < 44 || s.height < 44), `pager button sizes ${JSON.stringify(sizes)}`).toEqual([]);
+});
+
 // Permanent negative control: the probe reports a forced cursor, fill and short button.
 test('negative control: the Play-select probe reports a forced cursor, fill and short button', async ({ page }) => {
   await setupPlayersPageLayout(page);
@@ -512,6 +543,27 @@ test('1440x900: the League select is 44px tall and square, its top level with th
   expect(radius, 'League select border-radius').toBe('0px');
   expect(Math.abs(leagueBox!.y - positionBox!.y), `League top ${leagueBox!.y} vs Position top ${positionBox!.y}`).toBeLessThanOrEqual(1);
   await expect(page.locator('.ps-root .MuiSelect-select')).toHaveCount(0);
+});
+
+// #3088: the selected League name is shown in full, measured in the select's own font against its content box.
+test('1440x900: the League select shows the league name in full', async ({ page }) => {
+  await openDesktop(page);
+  const fit = await page.getByRole('combobox', { name: 'League' }).evaluate((el: HTMLSelectElement) => {
+    const style = getComputedStyle(el);
+    const name = el.selectedOptions[0]?.textContent ?? '';
+    const probe = document.createElement('span');
+    probe.textContent = name;
+    Object.assign(probe.style, {
+      position: 'absolute', whiteSpace: 'nowrap', fontFamily: style.fontFamily, fontSize: style.fontSize, fontWeight: style.fontWeight, letterSpacing: style.letterSpacing,
+    });
+    document.body.appendChild(probe);
+    const textWidth = probe.getBoundingClientRect().width;
+    probe.remove();
+    const contentWidth = el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    return { name, textWidth, contentWidth };
+  });
+  expect(fit.name, 'the selected League option').toBe(PLAYERS_LAYOUT_LEAGUE_NAME);
+  expect(fit.textWidth, `"${fit.name}" is ${fit.textWidth}px, the select's content box ${fit.contentWidth}px`).toBeLessThanOrEqual(fit.contentWidth);
 });
 
 test('390x844: with Filters open the League select is 44px tall, and no MUI select is on the page', async ({ page }) => {
