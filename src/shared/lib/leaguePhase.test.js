@@ -57,7 +57,7 @@ test.each([
 
 test('rosterActionForPhase keeps draft and completed-season adds unambiguous', () => {
   expect(rosterActionForPhase({ draft_status: 'pending' })).toMatchObject({ label: 'Draft not started', disabled: true });
-  expect(rosterActionForPhase({ draft_status: 'active' })).toMatchObject({ label: 'Open Draft Room', disabled: true });
+  expect(rosterActionForPhase({ draft_status: 'active' })).toMatchObject({ label: 'Draft in progress', disabled: true });
   expect(rosterActionForPhase({ draft_status: 'complete', season_status: 'regular' })).toMatchObject({ label: 'Add free agent', disabled: false });
   expect(rosterActionForPhase({ draft_status: 'complete', season_status: 'complete' })).toMatchObject({ label: 'Season complete', disabled: true });
 });

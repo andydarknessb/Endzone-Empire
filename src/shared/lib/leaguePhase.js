@@ -157,7 +157,7 @@ export function rosterActionForPhase(league) {
     return { label: 'Draft not started', disabled: true, helper: 'Players are added through the Draft Room.' };
   }
   if (phase === LEAGUE_PHASE.DRAFTING) {
-    return { label: 'Open Draft Room', disabled: true, helper: 'Draft picks must be made in the Draft Room.' };
+    return { label: 'Draft in progress', disabled: true, helper: 'Draft picks must be made in the Draft Room.' };
   }
   if (phase === LEAGUE_PHASE.COMPLETE) {
     return { label: 'Season complete', disabled: true, helper: 'Roster moves are closed for this season.' };
