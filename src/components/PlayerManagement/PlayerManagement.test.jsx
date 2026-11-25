@@ -1,11 +1,13 @@
 import React from "react";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useLocation } from "react-router-dom";
 import renderWithProviders from "../../test-utils/renderWithProviders";
 import apiClient from "../../api/apiClient";
 import { useLeague } from "../../hooks/useLeague";
 import { DEFAULT_ROSTER_SLOTS } from "../../lib/draftSim/templates";
 import PlayerManagement from "./PlayerManagement";
+import { SnackbarProvider } from "../Snackbar/SnackbarProvider";
 
 jest.mock("../../api/apiClient", () => ({
   __esModule: true,
@@ -670,6 +672,40 @@ test("restores selected league, search, position, sort, direction, and page from
   );
 });
 
+// Renders the URL the page wrote, so a test can read ?league= and ?page=.
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location-search">{location.search}</output>;
+}
+
+test("the League picker is a native Play-select: one option per league, and choosing one writes ?league= and reads that league", async () => {
+  const second = { ...league, id: 2, name: "Second League" };
+  mockBrowser({ leagues: [league, second] });
+  renderWithProviders(
+    <>
+      <PlayerManagement />
+      <LocationProbe />
+    </>,
+    { route: "/player?league=1", path: "/player" },
+  );
+  await screen.findByTestId("player-row");
+
+  const picker = screen.getByRole("combobox", { name: "League" });
+  expect(picker.tagName).toBe("SELECT");
+  expect(within(picker).getAllByRole("option").map((option) => option.textContent))
+    .toEqual(["Sunday Ballers", "Second League"]);
+
+  await userEvent.selectOptions(picker, "Second League");
+
+  const params = new URLSearchParams(screen.getByTestId("location-search").textContent);
+  expect(params.get("league")).toBe("2");
+  expect(params.get("page") ?? "1").toBe("1");
+  await waitFor(() => {
+    const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+    expect(playerCalls.at(-1)[1].params.leagueId).toBe(2);
+  });
+});
+
 test("uses stacked player-row cards and a filter drawer at mobile widths", async () => {
   window.matchMedia = jest
     .fn()
@@ -750,6 +786,195 @@ test("a load refusal carrying a code beside a message renders the message, not t
     await screen.findByText("The player index is rebuilding. Try again in a moment.")
   ).toBeInTheDocument();
   expect(screen.queryByText("PLAYER_INDEX_UNAVAILABLE")).not.toBeInTheDocument();
+});
+
+// #3056: a failed player-list read has its own alert, with Try again re-reading the list; a failed
+// league-list read keeps its alert and offers no retry.
+test("a failed player-list read shows an alert with Try again, and Try again re-reads the list (#3056)", async () => {
+  mockBrowser();
+  const listGet = apiClient.get.getMockImplementation();
+  let listReads = 0;
+  apiClient.get.mockImplementation((url, config) =>
+    url === "/api/players" && listReads++ === 0
+      ? Promise.reject(new Error("the player list is down"))
+      : listGet(url, config),
+  );
+  renderWithProviders(<PlayerManagement />);
+
+  const alert = await screen.findByRole("alert");
+  const playerReads = () => apiClient.get.mock.calls.filter(([url]) => url === "/api/players").length;
+  const readsBefore = playerReads();
+  await userEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+
+  expect(await screen.findByText("Patrick Mahomes")).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(playerReads()).toBe(readsBefore + 1);
+});
+
+// #3067: focus stays inside the page as the failed-read panel settles.
+test("a successful Try again moves focus to the page heading, not to the body (#3067)", async () => {
+  mockBrowser();
+  const listGet = apiClient.get.getMockImplementation();
+  let listReads = 0;
+  apiClient.get.mockImplementation((url, config) =>
+    url === "/api/players" && listReads++ === 0
+      ? Promise.reject(new Error("the player list is down"))
+      : listGet(url, config),
+  );
+  renderWithProviders(<PlayerManagement />);
+
+  await userEvent.click(within(await screen.findByRole("alert")).getByRole("button", { name: "Try again" }));
+
+  expect(await screen.findByText("Patrick Mahomes")).toBeInTheDocument();
+  /* eslint-disable testing-library/no-node-access -- PixelHeading takes no ref, so focus sits on the heading's wrapper, which has no role */
+  expect(document.activeElement).not.toBe(document.body);
+  expect(document.activeElement).toContainElement(screen.getByRole("heading", { level: 1, name: "Players" }));
+  /* eslint-enable testing-library/no-node-access */
+});
+
+test("a failed Try again replaces the alert and puts focus on the new Try again button (#3067)", async () => {
+  mockBrowser();
+  const listGet = apiClient.get.getMockImplementation();
+  apiClient.get.mockImplementation((url, config) =>
+    url === "/api/players" ? Promise.reject(new Error("the player list is down")) : listGet(url, config),
+  );
+  renderWithProviders(<PlayerManagement />);
+
+  const alert = await screen.findByRole("alert");
+  await userEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+
+  await waitFor(() => expect(screen.getByRole("alert")).not.toBe(alert));
+  const fresh = screen.getByRole("alert");
+  expect(fresh).toHaveTextContent("the player list is down");
+  expect(within(fresh).getByRole("button", { name: "Try again" })).toHaveFocus();
+});
+
+// #3067: a search read that clears or remounts the failed-read panel leaves focus in the search field.
+test("a search that clears the failed-read panel leaves focus in the search field (#3067)", async () => {
+  mockBrowser();
+  const listGet = apiClient.get.getMockImplementation();
+  let listReads = 0;
+  apiClient.get.mockImplementation((url, config) =>
+    url === "/api/players" && listReads++ === 0
+      ? Promise.reject(new Error("the player list is down"))
+      : listGet(url, config),
+  );
+  renderWithProviders(<PlayerManagement />);
+  await screen.findByRole("alert");
+
+  const search = screen.getByLabelText("Search this list");
+  await userEvent.type(search, "smith");
+
+  await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  expect(search).toHaveFocus();
+});
+
+test("a search that remounts the failed-read panel leaves focus in the search field (#3067)", async () => {
+  mockBrowser();
+  const listGet = apiClient.get.getMockImplementation();
+  let listReads = 0;
+  apiClient.get.mockImplementation((url, config) => {
+    if (url !== "/api/players") return listGet(url, config);
+    listReads += 1;
+    return listReads === 1 || config.params.search
+      ? Promise.reject(new Error("the player list is down"))
+      : listGet(url, config);
+  });
+  renderWithProviders(<PlayerManagement />);
+  const alert = await screen.findByRole("alert");
+
+  const search = screen.getByLabelText("Search this list");
+  await userEvent.type(search, "smith");
+
+  await waitFor(() => expect(screen.getByRole("alert")).not.toBe(alert));
+  expect(search).toHaveFocus();
+});
+
+test("the list's failed-read panel stays while Try again is in flight, and clears when the read succeeds (#3056)", async () => {
+  mockBrowser();
+  const listGet = apiClient.get.getMockImplementation();
+  let listReads = 0;
+  let releaseRetry;
+  apiClient.get.mockImplementation((url, config) => {
+    if (url !== "/api/players") return listGet(url, config);
+    listReads += 1;
+    if (listReads === 1) return Promise.reject(new Error("the player list is down"));
+    return new Promise((resolve) => {
+      releaseRetry = () => resolve(listGet(url, config));
+    });
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  const alert = await screen.findByRole("alert");
+  const retry = within(alert).getByRole("button", { name: "Try again" });
+  await userEvent.click(retry);
+
+  expect(screen.getByRole("alert")).toBe(alert);
+  expect(retry).toHaveFocus();
+  await act(async () => releaseRetry());
+  expect(await screen.findByText("Patrick Mahomes")).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+test("a failed league-list read keeps its alert and offers no Try again (#3056)", async () => {
+  mockBrowser();
+  const listGet = apiClient.get.getMockImplementation();
+  apiClient.get.mockImplementation((url, config) =>
+    url === "/api/league" ? Promise.reject(new Error("the leagues are down")) : listGet(url, config),
+  );
+  renderWithProviders(<PlayerManagement />);
+
+  const alert = await screen.findByRole("alert");
+  expect(within(alert).queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+});
+
+// #3059: a refused row action is said once, by the feature's toast. The page's
+// own danger panel must not repeat the refusal, and the league list is read once.
+const REFUSAL = "That player was just claimed by another team.";
+const refusedWith = { response: { status: 409, data: { error: REFUSAL } } };
+
+test("a refused row Add is reported once, in the toast, never in an alert (#3059)", async () => {
+  mockBrowser({ players: [player({ id: 8, name: "Free Agent" })] });
+  apiClient.post.mockRejectedValue(refusedWith);
+  renderWithProviders(<SnackbarProvider><PlayerManagement /></SnackbarProvider>);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Add Free Agent" }));
+
+  await waitFor(() => expect(screen.getByTestId("toast-alert")).toHaveTextContent(REFUSAL));
+  expect(screen.queryAllByRole("alert").some((el) => el.textContent.includes(REFUSAL))).toBe(false);
+});
+
+test("a refused row Claim in a priority league is reported once, in the toast, never in an alert (#3059)", async () => {
+  mockBrowser({
+    leagues: [priorityLeague],
+    players: [
+      player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+    ],
+  });
+  apiClient.post.mockRejectedValue(refusedWith);
+  renderWithProviders(<SnackbarProvider><PlayerManagement /></SnackbarProvider>);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+
+  await waitFor(() => expect(screen.getByTestId("toast-alert")).toHaveTextContent(REFUSAL));
+  expect(screen.queryAllByRole("alert").some((el) => el.textContent.includes(REFUSAL))).toBe(false);
+});
+
+test("the league list is read once, not again on a filter, search or page change (#3059)", async () => {
+  mockBrowser();
+  renderWithProviders(<PlayerManagement />);
+  await screen.findByTestId("player-row");
+
+  await userEvent.click(screen.getByRole("radio", { name: "Free agents" }));
+  await userEvent.type(screen.getByLabelText("Search this list"), "smith");
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith(
+      "/api/players",
+      expect.objectContaining({ params: expect.objectContaining({ search: "smith" }) }),
+    ),
+  );
+
+  expect(apiClient.get.mock.calls.filter(([url]) => url === "/api/league")).toHaveLength(1);
 });
 
 // Issue #1002 acceptance criterion 2 / #1310: the Sort dropdown still
@@ -1106,8 +1331,7 @@ describe("position chips derived from the roster template (#1419)", () => {
       expect(playerCalls.at(-1)[1].params.positions).toBe("DL,DE,DT,NT");
     });
 
-    await userEvent.click(screen.getByLabelText("League"));
-    await userEvent.click(await screen.findByRole("option", { name: "Standard League" }));
+    await userEvent.selectOptions(screen.getByLabelText("League"), "Standard League");
 
     await waitFor(() => {
       const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
@@ -1352,6 +1576,65 @@ describe("roster moves from the row (#1974)", () => {
     renderWithProviders(<PlayerManagement />);
 
     expect(await screen.findByRole("button", { name: "Drop My Starter" })).toBeDisabled();
+  });
+});
+
+// #3061: the page head says why roster moves are closed, as one visible line; the drafting note links to the Draft room.
+describe("phase note in the page head (#3061)", () => {
+  const freeAgents = [player({ id: 8, name: "Free Agent" })];
+
+  test("pre-draft: the note names the Draft Room, with no link", async () => {
+    mockBrowser({ leagues: [{ ...league, draft_status: "pending", season_status: "preseason" }], players: freeAgents });
+    renderWithProviders(<PlayerManagement />);
+
+    const note = await screen.findByTestId("players-phase-note");
+    expect(note).toHaveTextContent("Players are added through the Draft Room.");
+    expect(note).toBeVisible();
+    expect(within(note).queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  test("drafting: the note links to the Draft room, and the free-agent row reads Draft in progress and is disabled", async () => {
+    mockBrowser({ leagues: [{ ...league, draft_status: "active" }], players: freeAgents });
+    renderWithProviders(<PlayerManagement />);
+
+    const note = await screen.findByTestId("players-phase-note");
+    expect(note).toHaveTextContent("Draft picks must be made in the Draft Room.");
+    expect(within(note).getByRole("link", { name: "Open Draft Room" })).toHaveAttribute("href", "/league/1/draft");
+    expect(note).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Draft in progress" })).toBeDisabled();
+
+    // Not inside the screen-reader-only style. The row helper is the one SR-only node, so the probe must see it too.
+    const srOnly = (el) => getComputedStyle(el).position === "absolute" && getComputedStyle(el).width === "1px";
+    expect(srOnly(screen.getByText("Draft picks must be made in the Draft Room.", { selector: "span" }))).toBe(true);
+    // Testing Library has no query for "ancestor with this style", so the walk up the tree is direct.
+    // eslint-disable-next-line testing-library/no-node-access
+    for (let el = note; el; el = el.parentElement) expect(srOnly(el)).toBe(false);
+  });
+
+  test("complete: the note says roster moves are closed for the season", async () => {
+    mockBrowser({ leagues: [{ ...league, draft_status: "complete", season_status: "complete" }], players: freeAgents });
+    renderWithProviders(<PlayerManagement />);
+
+    expect(await screen.findByTestId("players-phase-note")).toHaveTextContent("Roster moves are closed for this season.");
+  });
+
+  test.each([
+    ["in season", { draft_status: "complete", season_status: "regular" }],
+    ["in the playoffs", { draft_status: "complete", season_status: "playoffs" }],
+  ])("%s: the page head has no phase note", async (_phase, overrides) => {
+    mockBrowser({ leagues: [{ ...league, ...overrides }], players: freeAgents });
+    renderWithProviders(<PlayerManagement />);
+
+    expect(await screen.findByRole("button", { name: "Add Free Agent" })).toBeEnabled();
+    expect(screen.queryByTestId("players-phase-note")).not.toBeInTheDocument();
+  });
+
+  test("no league selected: no phase note", async () => {
+    mockBrowser({ leagues: [] });
+    renderWithProviders(<PlayerManagement />);
+
+    expect(await screen.findByRole("link", { name: "Go to Leagues" })).toBeInTheDocument();
+    expect(screen.queryByTestId("players-phase-note")).not.toBeInTheDocument();
   });
 });
 

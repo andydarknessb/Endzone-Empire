@@ -1,5 +1,5 @@
-import React from "react";
-import { screen, waitFor } from "@testing-library/react";
+import React, { createRef } from "react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { TableCell, TableRow } from "@mui/material";
 import renderWithProviders from "../../../test-utils/renderWithProviders";
 import apiClient from "../../../api/apiClient";
@@ -25,6 +25,22 @@ const player = {
   upgrade: null,
   watching: false,
 };
+
+const josh = { ...player, id: 2, name: "Josh Allen" };
+const joe = { ...player, id: 3, name: "Joe Burrow" };
+const page = (players, total = players.length) => ({
+  data: { players, totalPages: 1, total, context: null },
+});
+// A read the test settles by hand, so it can finish after a newer read.
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 function renderPool(props = {}, route = "/") {
   return renderWithProviders(
@@ -92,4 +108,170 @@ test("emptyCopy replaces the default empty message", async () => {
   apiClient.get.mockResolvedValue({ data: { players: [], totalPages: 1, total: 0, context: null } });
   renderPool({ emptyCopy: "No players are on waivers" });
   expect(await screen.findByText("No players are on waivers")).toBeInTheDocument();
+});
+
+test("a held older read that resolves after a newer one does not overwrite rows, count or onLoaded", async () => {
+  const held = deferred();
+  const onLoaded = jest.fn();
+  apiClient.get.mockImplementation((url, { params }) =>
+    params.search === "jo" ? held.promise : Promise.resolve(page([josh])),
+  );
+  renderPool({ onLoaded }, "/?q=jo");
+  await waitFor(() => expect(playerReads()).toHaveLength(1));
+  fireEvent.change(screen.getByRole("textbox", { name: "Search this list" }), { target: { value: "josh" } });
+  expect(await screen.findByText("Josh Allen")).toBeInTheDocument();
+  await act(async () => held.resolve(page([joe], 3)));
+  expect(screen.queryByText("Joe Burrow")).not.toBeInTheDocument();
+  expect(screen.getByText("1 player matching “josh”")).toBeInTheDocument();
+  expect(onLoaded).toHaveBeenLastCalledWith({ players: [josh], context: null, total: 1 });
+});
+
+test("a held older read that rejects after a newer one resolved reports nothing", async () => {
+  const held = deferred();
+  const onError = jest.fn();
+  apiClient.get.mockImplementation((url, { params }) =>
+    params.search === "jo" ? held.promise : Promise.resolve(page([josh])),
+  );
+  renderPool({ onError }, "/?q=jo");
+  await waitFor(() => expect(playerReads()).toHaveLength(1));
+  fireEvent.change(screen.getByRole("textbox", { name: "Search this list" }), { target: { value: "josh" } });
+  expect(await screen.findByText("Josh Allen")).toBeInTheDocument();
+  await act(async () => held.reject(new Error("jo timed out")));
+  expect(onError).not.toHaveBeenCalledWith("jo timed out");
+  expect(screen.getByText("Josh Allen")).toBeInTheDocument();
+});
+
+test("while the first read is held, the list is loading: skeleton rows, aria-busy, no empty message, pager or count", async () => {
+  const held = deferred();
+  apiClient.get.mockReturnValue(held.promise);
+  renderPool();
+  expect(screen.getByTestId("player-pool-loading")).toBeInTheDocument();
+  expect(screen.getByRole("table", { name: "Players" })).toHaveAttribute("aria-busy", "true");
+  expect(screen.queryByText("No players found")).not.toBeInTheDocument();
+  expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+  expect(screen.queryByText(/^\d+ players?/)).not.toBeInTheDocument();
+  await act(async () => held.resolve(page([])));
+  expect(screen.queryByTestId("player-pool-loading")).not.toBeInTheDocument();
+  expect(screen.getByText("No players found")).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("0 players");
+});
+
+test("a later read keeps the rows on screen and marks the list aria-busy until it lands", async () => {
+  const ref = createRef();
+  const held = deferred();
+  apiClient.get.mockResolvedValueOnce(page([josh])).mockReturnValueOnce(held.promise);
+  renderPool({ ref });
+  expect(await screen.findByText("Josh Allen")).toBeInTheDocument();
+  const table = screen.getByRole("table", { name: "Players" });
+  expect(table).not.toHaveAttribute("aria-busy", "true");
+  act(() => {
+    ref.current.refresh();
+  });
+  expect(table).toHaveAttribute("aria-busy", "true");
+  expect(screen.getByText("Josh Allen")).toBeInTheDocument();
+  expect(screen.queryByTestId("player-pool-loading")).not.toBeInTheDocument();
+  await act(async () => held.resolve(page([josh])));
+  expect(table).not.toHaveAttribute("aria-busy", "true");
+  expect(screen.getByText("Josh Allen")).toBeInTheDocument();
+});
+
+test("a first read that rejects draws neither the skeleton nor the empty message", async () => {
+  const onError = jest.fn();
+  apiClient.get.mockRejectedValue(new Error("boom"));
+  renderPool({ onError });
+  await waitFor(() => expect(onError).toHaveBeenCalledTimes(2));
+  expect(screen.queryByTestId("player-pool-loading")).not.toBeInTheDocument();
+  expect(screen.queryByText("No players found")).not.toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("");
+});
+
+test("a failed read with no rows on screen draws no empty message, pager or count", async () => {
+  const ref = createRef();
+  const onError = jest.fn();
+  apiClient.get.mockResolvedValueOnce(page([])).mockRejectedValueOnce(new Error("boom"));
+  renderPool({ ref, onError });
+  expect(await screen.findByText("No players found")).toBeInTheDocument();
+  act(() => {
+    ref.current.refresh();
+  });
+  await waitFor(() => expect(onError).toHaveBeenLastCalledWith(expect.any(String)));
+  expect(screen.queryByText("No players found")).not.toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("");
+  expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+});
+
+// #3067: the skeleton holds a later read with no rows on screen, and a failed read with rows keeps the pager.
+test("a later read with no rows on screen shows the skeleton and no pager", async () => {
+  const ref = createRef();
+  const held = deferred();
+  apiClient.get.mockResolvedValueOnce(page([])).mockReturnValueOnce(held.promise);
+  renderPool({ ref });
+  expect(await screen.findByText("No players found")).toBeInTheDocument();
+  expect(screen.getByRole("navigation")).toBeInTheDocument();
+  act(() => {
+    ref.current.refresh();
+  });
+  expect(screen.getByTestId("player-pool-loading")).toBeInTheDocument();
+  expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+  await act(async () => held.resolve(page([])));
+});
+
+test("a failed read with rows on screen still shows the pager", async () => {
+  const ref = createRef();
+  const onError = jest.fn();
+  apiClient.get.mockResolvedValueOnce(page([josh])).mockRejectedValueOnce(new Error("boom"));
+  renderPool({ ref, onError });
+  expect(await screen.findByText("Josh Allen")).toBeInTheDocument();
+  act(() => {
+    ref.current.refresh();
+  });
+  await waitFor(() => expect(onError).toHaveBeenLastCalledWith(expect.any(String)));
+  expect(screen.getByText("Josh Allen")).toBeInTheDocument();
+  expect(screen.getByRole("navigation")).toBeInTheDocument();
+});
+
+test("ref.refresh() starts a read that supersedes the one before it", async () => {
+  const ref = createRef();
+  const held = deferred();
+  apiClient.get.mockReturnValueOnce(held.promise).mockResolvedValueOnce(page([josh]));
+  renderPool({ ref });
+  await waitFor(() => expect(playerReads()).toHaveLength(1));
+  act(() => {
+    ref.current.refresh();
+  });
+  expect(await screen.findByText("Josh Allen")).toBeInTheDocument();
+  await act(async () => held.resolve(page([joe], 3)));
+  expect(screen.queryByText("Joe Burrow")).not.toBeInTheDocument();
+  expect(screen.getByText("1 player")).toBeInTheDocument();
+});
+
+// #3081: the count status names the term its total was read with, not the term typed since.
+test("while a newer search is pending, the count keeps the last settled term and total", async () => {
+  const held = deferred();
+  apiClient.get.mockImplementation((url, { params }) =>
+    params.search === "smith" ? held.promise : Promise.resolve(page([josh], 47)),
+  );
+  renderPool();
+  expect(await screen.findByText("Josh Allen")).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent(/^47 players$/);
+  fireEvent.change(screen.getByRole("textbox", { name: "Search this list" }), { target: { value: "smith" } });
+  await waitFor(() => expect(playerReads()).toHaveLength(2));
+  expect(screen.getByRole("status").textContent).toBe("47 players");
+  expect(screen.getByText("Josh Allen")).toBeInTheDocument();
+  await act(async () => held.resolve(page([josh], 3)));
+  expect(screen.getByRole("status").textContent).toBe("3 players matching “smith”");
+});
+
+test("a failed search read leaves the count on the last settled term", async () => {
+  const held = deferred();
+  apiClient.get.mockImplementation((url, { params }) =>
+    params.search === "smith" ? held.promise : Promise.resolve(page([josh], 47)),
+  );
+  renderPool();
+  expect(await screen.findByText("Josh Allen")).toBeInTheDocument();
+  fireEvent.change(screen.getByRole("textbox", { name: "Search this list" }), { target: { value: "smith" } });
+  await waitFor(() => expect(playerReads()).toHaveLength(2));
+  await act(async () => held.reject(new Error("boom")));
+  expect(screen.getByRole("status").textContent).toBe("47 players");
+  expect(screen.getByText("Josh Allen")).toBeInTheDocument();
 });

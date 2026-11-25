@@ -21,3 +21,5 @@
  */
 export { default as PlayerPool } from './ui/PlayerPool';
 export { default } from './ui/PlayerPool';
+// The Players page's League picker is this same control (#3060), so the page imports it from here.
+export { PsSelect } from './ui/psControls';

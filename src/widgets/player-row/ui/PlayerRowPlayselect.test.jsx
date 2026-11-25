@@ -69,6 +69,11 @@ test('an outlined Ink Upgrade badge with its week, an injury code, and Danger on
   expect(screen.getByTestId('player-row-status-detail')).toHaveStyle({ color: 'var(--ps-danger)' });
 });
 
+test('the name is one button whose accessible name is the full name', () => {
+  renderRow({ player: player({ name: 'Clyde Edwards-Helaire' }) });
+  expect(screen.getByRole('button', { name: 'Clyde Edwards-Helaire' })).toBeInTheDocument();
+});
+
 test('the weeks are one labelled image', () => {
   renderRow({ player: player() });
   expect(screen.getByRole('img', { name: /Projected points by week, weeks 3 to 4: week 3 22.4, week 4 bye/ })).toBeInTheDocument();
