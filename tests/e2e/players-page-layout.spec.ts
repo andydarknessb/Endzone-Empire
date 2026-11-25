@@ -405,3 +405,32 @@ test('negative control: the Play-select probe reports a forced cursor, fill and 
   expect(probe.fills).toBe(1);
   expect(probe.small.length).toBeGreaterThan(0);
 });
+
+// #3060: the League picker is the Play-select native select, the same square 44px control as Position.
+test('1440x900: the League select is 44px tall and square, its top level with the Position select, and no MUI select is on the page', async ({ page }) => {
+  await openDesktop(page);
+  const league = page.getByRole('combobox', { name: 'League' });
+  const leagueBox = await league.boundingBox();
+  const positionBox = await page.getByRole('combobox', { name: 'Position' }).boundingBox();
+  const radius = await league.evaluate((el) => getComputedStyle(el).borderRadius);
+  expect(leagueBox, 'the League select must have a measurable box').not.toBeNull();
+  expect(positionBox, 'the Position select must have a measurable box').not.toBeNull();
+  expect(leagueBox!.height, `League select height ${leagueBox!.height}`).toBe(44);
+  expect(radius, 'League select border-radius').toBe('0px');
+  expect(Math.abs(leagueBox!.y - positionBox!.y), `League top ${leagueBox!.y} vs Position top ${positionBox!.y}`).toBeLessThanOrEqual(1);
+  await expect(page.locator('.ps-root .MuiSelect-select')).toHaveCount(0);
+});
+
+test('390x844: with Filters open the League select is 44px tall, and no MUI select is on the page', async ({ page }) => {
+  await setupPlayersPageLayout(page);
+  await page.setViewportSize(PHONE);
+  await page.goto(PLAYERS_LAYOUT_URL);
+  await expect(page.getByTestId('player-row-card').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  const league = page.getByRole('combobox', { name: 'League' });
+  await expect(league).toBeVisible();
+  const box = await league.boundingBox();
+  expect(box, 'the League select must have a measurable box').not.toBeNull();
+  expect(box!.height, `League select height ${box!.height} in the Filters drawer`).toBe(44);
+  await expect(page.locator('.ps-root .MuiSelect-select')).toHaveCount(0);
+});

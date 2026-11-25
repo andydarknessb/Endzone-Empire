@@ -1,6 +1,7 @@
 import React from "react";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useLocation } from "react-router-dom";
 import renderWithProviders from "../../test-utils/renderWithProviders";
 import apiClient from "../../api/apiClient";
 import { useLeague } from "../../hooks/useLeague";
@@ -671,6 +672,40 @@ test("restores selected league, search, position, sort, direction, and page from
   );
 });
 
+// Renders the URL the page wrote, so a test can read ?league= and ?page=.
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location-search">{location.search}</output>;
+}
+
+test("the League picker is a native Play-select: one option per league, and choosing one writes ?league= and reads that league", async () => {
+  const second = { ...league, id: 2, name: "Second League" };
+  mockBrowser({ leagues: [league, second] });
+  renderWithProviders(
+    <>
+      <PlayerManagement />
+      <LocationProbe />
+    </>,
+    { route: "/player?league=1", path: "/player" },
+  );
+  await screen.findByTestId("player-row");
+
+  const picker = screen.getByRole("combobox", { name: "League" });
+  expect(picker.tagName).toBe("SELECT");
+  expect(within(picker).getAllByRole("option").map((option) => option.textContent))
+    .toEqual(["Sunday Ballers", "Second League"]);
+
+  await userEvent.selectOptions(picker, "Second League");
+
+  const params = new URLSearchParams(screen.getByTestId("location-search").textContent);
+  expect(params.get("league")).toBe("2");
+  expect(params.get("page") ?? "1").toBe("1");
+  await waitFor(() => {
+    const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+    expect(playerCalls.at(-1)[1].params.leagueId).toBe(2);
+  });
+});
+
 test("uses stacked player-row cards and a filter drawer at mobile widths", async () => {
   window.matchMedia = jest
     .fn()
@@ -1217,8 +1252,7 @@ describe("position chips derived from the roster template (#1419)", () => {
       expect(playerCalls.at(-1)[1].params.positions).toBe("DL,DE,DT,NT");
     });
 
-    await userEvent.click(screen.getByLabelText("League"));
-    await userEvent.click(await screen.findByRole("option", { name: "Standard League" }));
+    await userEvent.selectOptions(screen.getByLabelText("League"), "Standard League");
 
     await waitFor(() => {
       const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
