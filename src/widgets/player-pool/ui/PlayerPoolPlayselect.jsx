@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Drawer, Pagination } from '@mui/material';
 import { SegmentedControl } from '../../../shared/ui';
 import {
-  BODY_FONT, Frame, FrameHead, PixelHeading, PsButton, Skel,
+  BODY_FONT, Frame, FrameHead, PixelHeading, PsButton, SR_ONLY_SX, Skel,
 } from '../../../shared/ui/playselect';
 import {
   PsCheck, PsField, PsIconButton, PsPageItem, PsSelect,
@@ -118,7 +118,7 @@ export default function PlayerPoolPlayselect({
   // The count's status is mounted from the first render and reads its text only while the pager shows (#3067).
   // Hidden, the box is out of flow, so it takes no room and no flex gap.
   const footer = (
-    <Box sx={showPager ? { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '16px' } : { position: 'absolute', width: '1px', height: '1px', overflow: 'hidden' }}>
+    <Box sx={showPager ? { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '16px' } : SR_ONLY_SX}>
       {showPager && pager}
       <Box component="span" role="status" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>
         {showPager ? `${totalPlayers} player${totalPlayers === 1 ? '' : 's'}${search ? ` matching “${search}”` : ''}` : ''}
