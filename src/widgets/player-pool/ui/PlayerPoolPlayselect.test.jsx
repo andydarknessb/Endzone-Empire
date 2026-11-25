@@ -1,6 +1,6 @@
 /* eslint-disable testing-library/no-node-access -- the Play-select look is asserted by its class and markup (.cursor, MUI roots), which have no role */
 import React from 'react';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import { useLeague } from '../../../hooks/useLeague';
@@ -107,4 +107,87 @@ test('at a phone width, Filters opens a dialog named Player filters', async () =
   } finally {
     delete window.matchMedia;
   }
+});
+
+// #3067: the count's status is mounted from the first render; its text is the count only while the pager shows.
+const page = (players) => ({ data: { players, totalPages: 1, total: players.length, context: null } });
+function deferred() {
+  let resolve;
+  const promise = new Promise((res) => { resolve = res; });
+  return { promise, resolve };
+}
+const phoneQuery = (query) => ({ matches: true, media: query, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
+
+describe.each([
+  ['table', false],
+  ['card', true],
+])('the %s layout (#3067)', (layout, phone) => {
+  beforeEach(() => {
+    if (phone) window.matchMedia = phoneQuery;
+  });
+  afterEach(() => {
+    delete window.matchMedia;
+  });
+
+  test('the count status is mounted from the first render, and reads its count only while the pager shows', async () => {
+    const first = deferred();
+    const second = deferred();
+    apiClient.get.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    renderPool();
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('');
+
+    await act(async () => first.resolve(page([])));
+    expect(screen.getByRole('status')).toBe(status);
+    expect(status).toHaveTextContent('0 players');
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search this list' }), { target: { value: 'jo' } });
+    await waitFor(() => expect(reads()).toHaveLength(2));
+    expect(screen.getByRole('status')).toBe(status);
+    expect(status).toHaveTextContent('');
+
+    await act(async () => second.resolve(page([player])));
+    expect(status).toHaveTextContent('1 player');
+  });
+});
+
+describe('at a phone width (#3067)', () => {
+  beforeEach(() => {
+    window.matchMedia = phoneQuery;
+  });
+  afterEach(() => {
+    delete window.matchMedia;
+  });
+
+  test('the card list is a region named Players, aria-busy while a read is in flight', async () => {
+    const held = deferred();
+    apiClient.get.mockReturnValueOnce(held.promise);
+    renderPool();
+    const region = screen.getByRole('region', { name: 'Players' });
+    expect(region).toHaveAttribute('aria-busy', 'true');
+
+    await act(async () => held.resolve(page([player])));
+    expect(screen.getByRole('region', { name: 'Players' })).toBe(region);
+    expect(region).toHaveAttribute('aria-busy', 'false');
+  });
+
+  test('a held first read draws the skeleton in the card list', () => {
+    apiClient.get.mockReturnValueOnce(deferred().promise);
+    renderPool();
+    expect(screen.getByTestId('player-pool-loading')).toBeInTheDocument();
+  });
+
+  test('a settled empty read draws the empty copy in the card list', async () => {
+    apiClient.get.mockResolvedValue(page([]));
+    renderPool();
+    expect(await screen.findByText('No players found')).toBeInTheDocument();
+    expect(screen.queryByTestId('player-pool-loading')).not.toBeInTheDocument();
+  });
+
+  test('a settled read with rows draws the pager and the count in the card list', async () => {
+    renderPool();
+    expect(await screen.findByText('Patrick Mahomes')).toBeInTheDocument();
+    expect(screen.getByRole('navigation')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('1 player');
+  });
 });

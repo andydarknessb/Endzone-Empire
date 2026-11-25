@@ -35,8 +35,19 @@ function PlayerManagement() {
   const [error, setError] = useState(null);
   // The player list's own failed read (#3056): the one panel that offers Try again.
   const [listError, setListError] = useState(null);
+  // A failed read bumps the key, so the panel remounts and its alert is announced again (#3067).
+  const [listErrorKey, setListErrorKey] = useState(0);
   const [quickViewId, setQuickViewId] = useState(null);
   const poolRef = useRef(null);
+  // Focus that sat in the failed-read panel moves before the panel unmounts or remounts (#3067).
+  const listErrorRef = useRef(null);
+  const listHeadingRef = useRef(null);
+  const focusListError = useRef(false);
+  useEffect(() => {
+    if (!focusListError.current) return;
+    focusListError.current = false;
+    listErrorRef.current?.querySelector("button")?.focus();
+  }, [listErrorKey]);
   // Formal review round 1, f3: the Decision card's free-agent action bar
   // needs the caller's own roster for its at-capacity drop pick.
   const [roster, setRoster] = useState([]);
@@ -351,7 +362,9 @@ function PlayerManagement() {
         sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: "12px", rowGap: "8px" }}
       >
         <Box sx={{ display: "flex", flexDirection: "column", gap: "4px", minWidth: 0, flex: 1 }}>
-          <PixelHeading level={1}>Players</PixelHeading>
+          <Box ref={listHeadingRef} tabIndex={-1}>
+            <PixelHeading level={1}>Players</PixelHeading>
+          </Box>
           {/* Below md the League select lives in the Filters drawer, so the
               header names the league there. */}
           {activeLeague?.name && (
@@ -384,11 +397,13 @@ function PlayerManagement() {
         <ErrorPanel title="Something went wrong" body={error} />
       )}
       {listError && (
-        <ErrorPanel
-          title="Something went wrong"
-          body={listError}
-          onRetry={() => poolRef.current?.refresh()}
-        />
+        <Box key={listErrorKey} ref={listErrorRef}>
+          <ErrorPanel
+            title="Something went wrong"
+            body={listError}
+            onRetry={() => poolRef.current?.refresh()}
+          />
+        </Box>
       )}
       {leaguesLoaded && leagues.length === 0 && (
         <Box component="p" sx={{ m: 0, fontSize: "16px", color: "var(--ps-dim)" }}>
@@ -418,12 +433,21 @@ function PlayerManagement() {
         onLoaded={({ players: nextPlayers, context: nextContext }) => {
           setPlayers(nextPlayers);
           setContext(nextContext);
+          // Focus in the panel goes to the page heading; focus elsewhere (a search field) stays put (#3067).
+          if (listErrorRef.current?.contains(document.activeElement)) {
+            listHeadingRef.current?.focus({ preventScroll: true });
+          }
           setListError(null);
         }}
         onError={(message) => {
           // A read starting clears the page's own danger panel; the list's own failure stays until a read succeeds.
-          if (message === null) setError(null);
-          else setListError(message);
+          if (message === null) {
+            setError(null);
+            return;
+          }
+          focusListError.current = !!listErrorRef.current?.contains(document.activeElement);
+          setListError(message);
+          setListErrorKey((key) => key + 1);
         }}
         leadingControl={(layout) => (
           <PsSelect
