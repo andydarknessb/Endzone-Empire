@@ -45,8 +45,8 @@ const AVAILABILITY_FILTERS = [
  * one has superseded sets and reports nothing (#3054). `ref.refresh()` re-reads
  * the list after a caller's action. Until a read settles the list draws skeleton rows
  * (`player-pool-loading`); the empty message, pager and count wait for a settled read, and `aria-busy`
- * marks a read in flight (#3056). A pager press focuses the list top and scrolls it to the viewport top; no other
- * control moves focus (#3057).
+ * marks a read in flight (#3056). A pager press focuses the list top and scrolls it to the viewport top; Reset filters
+ * focuses it without scrolling, since its control leaves the page; no other control moves focus (#3057, #3094).
  *
  * `byeWeekFilter`: renders a Bye week control (`?bye=`, one week) that sends
  * `byeWeeks`, the read's include-only filter; off by default, so the Players
@@ -54,7 +54,7 @@ const AVAILABILITY_FILTERS = [
  * viewport top from `lg` (default off), and from `lg` clips the list's scroll region, which then has no tab
  * stop (#3058). `cardsBelow` is the breakpoint under which rows render as
  * cards (default `md`, the Filters drawer's own breakpoint; the Waivers page
- * passes `sm`). `emptyCopy` replaces the default empty message.
+ * passes `sm`). `emptyCopy` replaces the default empty message until a filter or search is applied, and a zero total draws no pager (#3094).
  *
  * `availabilityLock`: when set, every read sends that Availability and no
  * Availability control renders; the `availability` URL param is ignored.
@@ -260,18 +260,37 @@ const PlayerPool = forwardRef(function PlayerPool(
   const placeholder = !settled || (busy && visiblePlayers.length === 0);
   const showEmpty = !placeholder && lastOk && visiblePlayers.length === 0;
   // Rows only ever come from a successful read, so rows on screen mean one has landed.
-  const showPager = !placeholder && (lastOk || visiblePlayers.length > 0);
-  const emptyCopy = emptyCopyOverride && !watchingOnly && !search && !byeWeek
-    ? emptyCopyOverride
-    : watchingOnly
+  // The count's text names a settled read (#3094); the pager needs a total to page through, so a zero total draws none.
+  const counted = !placeholder && (lastOk || visiblePlayers.length > 0);
+  const showPager = counted && totalPlayers > 0;
+  // What the phone Filters button counts and names, in the controls' order (#3094). Sort and search are not filters.
+  const appliedFilters = [
+    selectedChip.key !== "All" ? selectedChip.key : null,
+    !availabilityLock && availabilityFilter !== "all"
+      ? AVAILABILITY_FILTERS.find((filter) => filter.value === availabilityFilter)?.label || availabilityFilter
+      : null,
+    byeWeek ? `Wk ${byeWeek}` : null,
+    watchingOnly ? "Watching" : null,
+  ].filter(Boolean);
+  // Reset unmounts the control that was pressed, so focus moves to the list top, without scrolling (#3094).
+  const resetFilters = () => {
+    updateParams({ pos: "", availability: "", bye: "", watching: "", page: "" });
+    topRef.current?.focus({ preventScroll: true });
+  };
+  const inFilters = appliedFilters.length ? ` in ${appliedFilters.join(", ")}` : "";
+  const emptyCopy = watchingOnly
     ? "No watched players on this page"
     : search
-    ? `No players matching “${search}”`
-    : "No players found";
+    ? `No players matching “${search}”${inFilters}`
+    : emptyCopyOverride && !appliedFilters.length
+    ? emptyCopyOverride
+    : `No players found${inFilters}`;
 
   return (
     <PlayerPoolPlayselect
       isMobile={isMobile}
+      appliedFilters={appliedFilters}
+      onResetFilters={resetFilters}
       cardLayout={cardLayout}
       filtersOpen={filtersOpen}
       setFiltersOpen={setFiltersOpen}
@@ -309,6 +328,7 @@ const PlayerPool = forwardRef(function PlayerPool(
       placeholder={placeholder}
       showEmpty={showEmpty}
       showPager={showPager}
+      showCount={counted}
       totalPages={totalPages}
       pageNumber={pageNumber}
       onPage={(value) => {
