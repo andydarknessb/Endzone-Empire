@@ -459,7 +459,8 @@ function PlayerManagement() {
             }
             onChange={(event) => updateParams({ league: event.target.value, page: 1 })}
             options={leagues.map((league) => ({ value: String(league.id), label: league.name }))}
-            // 232px: "Layout Guard League" (152px of 16px text) plus the select's 68px of border and paddings (#3088).
+            // 232px: the fixture's league name at 16px plus the select's 72px of border and paddings (2px border each side,
+            // 12px and 56px padding). The 1440x900 League case guards the fit (#3088).
             width={layout === "row" ? 232 : undefined}
           />
         )}
