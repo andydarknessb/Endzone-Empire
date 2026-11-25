@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Box } from "@mui/material";
 import apiClient from "../../api/apiClient";
 import { readHttpFailure } from "../../lib/httpFailure";
 import PlayerDecisionCard, { myTeam, freeAgent, waivers, rostered } from "../../widgets/player-decision-card";
 import { toDecisionCardEntry } from "../../entities/player";
-import { useWaiverClaims } from "../../entities/waiver-claim";
+import { useWaiverClaims, claimOrderMap } from "../../entities/waiver-claim";
 import { PlayerPool, PsSelect } from "../../widgets/player-pool";
 import PlayerRow, { PlayerRowTableHead, playerRowColumnCount } from "../../widgets/player-row";
 import { AddDropSheet, useAddPlayer } from "../../features/add-player";
@@ -141,6 +141,8 @@ function PlayerManagement() {
   });
   const pendingClaimCount =
     selectedLeague && !bestBall && claimsLoaded ? waiverClaims.pending.length : null;
+  // #3091: the same pending claims mark a waivers row whose player the manager has claimed (its "Claim #n" link).
+  const claimOrders = useMemo(() => claimOrderMap(waiverClaims.pending), [waiverClaims.pending]);
 
   // Formal review round 2, f11: an add or a drop-and-add both change the
   // caller's own roster, so the drop pick a LATER at-capacity add offers
@@ -219,6 +221,17 @@ function PlayerManagement() {
           disabled: true,
           helper: "Select a fantasy league to manage players.",
         };
+      // #3091: a player already in the manager's pending claims reads "Claim #n", a link to the Waivers page.
+      if (state === "waivers" && claimOrders.has(player.id)) {
+        const order = claimOrders.get(player.id);
+        return {
+          kind: "link",
+          to: `/league/${selectedLeague}/waivers`,
+          label: `Claim #${order}`,
+          ariaLabel: `Claim #${order} ${player.name}`,
+          helper: "You already have a pending claim on this player.",
+        };
+      }
       if (state === "waivers")
         return {
           kind: "button",
@@ -231,6 +244,7 @@ function PlayerManagement() {
           // FAAB league (#1576) a one-tap claim would post a silent $0 bid that
           // loses to any $1 bid, so the tap opens the card, which collects the bid.
           label: rowPending ? "Claiming…" : "Claim",
+          ariaLabel: rowPending ? `Claiming ${player.name}` : `Claim ${player.name}`,
           onClick: opensClaimCard ? () => setQuickViewId(player.id) : () => claimFromRow(player),
           disabled: rowPending,
           helper: rosterAtCapacity
@@ -257,6 +271,7 @@ function PlayerManagement() {
             playerId: player.id,
           }),
           label: "Trade",
+          ariaLabel: `Trade for ${player.name}`,
           helper: player.availability?.teamName
             ? `Propose a trade with ${player.availability.teamName}.`
             : "Propose a trade for this player.",
@@ -279,7 +294,7 @@ function PlayerManagement() {
             : rosterAction.helper,
       };
     },
-    [activeLeague, addToRoster, claimFromRow, pendingPlayerId, requestDrop, rosterAction, rosterAtCapacity, selectedLeague],
+    [activeLeague, addToRoster, claimFromRow, claimOrders, pendingPlayerId, requestDrop, rosterAction, rosterAtCapacity, selectedLeague],
   );
   const quickViewPlayer = players.find((player) => player.id === quickViewId);
   const marketContext =

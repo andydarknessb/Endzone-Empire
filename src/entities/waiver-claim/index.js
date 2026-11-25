@@ -8,7 +8,7 @@
  * `useEndpoint` and, for the Claim-order reorder write and its refusal text,
  * `api/apiClient` and `lib/httpFailure`; the model imports nothing at all.
  */
-export { claimsFromResponse } from './model/claimsModel';
+export { claimsFromResponse, claimOrderMap } from './model/claimsModel';
 export { useWaiverClaims } from './model/useWaiverClaims';
 export { submitClaim, editClaim, cancelClaim, moveClaim, readClaimTarget } from './model/claimWrites';
 export { nextClaimRow, clearsUnderHour } from './model/nextClaimRow';
