@@ -80,6 +80,58 @@ describe('actionable toast (#1645)', () => {
     }
   });
 
+  test('an error toast with no action and no duration lingers 10s', () => {
+    jest.useFakeTimers();
+    try {
+      render(
+        <SnackbarProvider>
+          <Trigger options={{ severity: 'error' }} />
+        </SnackbarProvider>
+      );
+      act(() => {
+        screen.getByRole('button', { name: 'fire' }).click();
+      });
+      act(() => {
+        jest.advanceTimersByTime(9999);
+      });
+      expect(screen.getByTestId('toast-alert')).toHaveTextContent('Hello there');
+      act(() => {
+        jest.advanceTimersByTime(1);
+      });
+      expect(screen.getByTestId('toast-alert')).toBeEmptyDOMElement();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test.each([
+    ['a plain toast', 4000, 'toast-status', {}],
+    ['an error toast with an action', 20000, 'toast-alert', { severity: 'error', actionLabel: 'Undo', onAction: jest.fn() }],
+    ['an error toast passed duration 3000', 3000, 'toast-alert', { severity: 'error', duration: 3000 }],
+  ])('%s keeps its %i ms dwell', (_name, dwell, region, options) => {
+    jest.useFakeTimers();
+    try {
+      render(
+        <SnackbarProvider>
+          <Trigger options={options} />
+        </SnackbarProvider>
+      );
+      act(() => {
+        screen.getByRole('button', { name: 'fire' }).click();
+      });
+      act(() => {
+        jest.advanceTimersByTime(dwell - 1);
+      });
+      expect(screen.getByTestId(region)).toHaveTextContent('Hello there');
+      act(() => {
+        jest.advanceTimersByTime(1);
+      });
+      expect(screen.getByTestId(region)).toBeEmptyDOMElement();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('names the action in the status text only when there is one', async () => {
     const { unmount } = render(
       <SnackbarProvider>
