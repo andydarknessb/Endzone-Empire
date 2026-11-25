@@ -459,7 +459,7 @@ function PlayerManagement() {
             }
             onChange={(event) => updateParams({ league: event.target.value, page: 1 })}
             options={leagues.map((league) => ({ value: String(league.id), label: league.name }))}
-            width={layout === "row" ? 200 : undefined}
+            width={layout === "row" ? 232 : undefined}
           />
         )}
         afterAvailabilityControl={() =>
