@@ -182,6 +182,7 @@ test("a first read that rejects draws neither the skeleton nor the empty message
   await waitFor(() => expect(onError).toHaveBeenCalledTimes(2));
   expect(screen.queryByTestId("player-pool-loading")).not.toBeInTheDocument();
   expect(screen.queryByText("No players found")).not.toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("");
 });
 
 test("a failed read with no rows on screen draws no empty message, pager or count", async () => {
@@ -195,8 +196,38 @@ test("a failed read with no rows on screen draws no empty message, pager or coun
   });
   await waitFor(() => expect(onError).toHaveBeenLastCalledWith(expect.any(String)));
   expect(screen.queryByText("No players found")).not.toBeInTheDocument();
-  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("");
   expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+});
+
+// #3067: the skeleton holds a later read with no rows on screen, and a failed read with rows keeps the pager.
+test("a later read with no rows on screen shows the skeleton and no pager", async () => {
+  const ref = createRef();
+  const held = deferred();
+  apiClient.get.mockResolvedValueOnce(page([])).mockReturnValueOnce(held.promise);
+  renderPool({ ref });
+  expect(await screen.findByText("No players found")).toBeInTheDocument();
+  expect(screen.getByRole("navigation")).toBeInTheDocument();
+  act(() => {
+    ref.current.refresh();
+  });
+  expect(screen.getByTestId("player-pool-loading")).toBeInTheDocument();
+  expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+  await act(async () => held.resolve(page([])));
+});
+
+test("a failed read with rows on screen still shows the pager", async () => {
+  const ref = createRef();
+  const onError = jest.fn();
+  apiClient.get.mockResolvedValueOnce(page([josh])).mockRejectedValueOnce(new Error("boom"));
+  renderPool({ ref, onError });
+  expect(await screen.findByText("Josh Allen")).toBeInTheDocument();
+  act(() => {
+    ref.current.refresh();
+  });
+  await waitFor(() => expect(onError).toHaveBeenLastCalledWith(expect.any(String)));
+  expect(screen.getByText("Josh Allen")).toBeInTheDocument();
+  expect(screen.getByRole("navigation")).toBeInTheDocument();
 });
 
 test("ref.refresh() starts a read that supersedes the one before it", async () => {

@@ -104,19 +104,24 @@ export default function PlayerPoolPlayselect({
     </Box>
   );
 
+  // The phone pager fits one row: no sibling pages beside the current one (#3058).
   const pager = (
-    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '16px' }}>
-      {/* The phone pager fits one row: no sibling pages beside the current one (#3058). */}
-      <Pagination
-        count={totalPages}
-        page={pageNumber}
-        siblingCount={cardLayout ? 0 : 1}
-        onChange={(event, value) => onPage(value)}
-        renderItem={(item) => <PsPageItem item={item} />}
-        sx={{ '& ul': { gap: '6px' } }}
-      />
+    <Pagination
+      count={totalPages}
+      page={pageNumber}
+      siblingCount={cardLayout ? 0 : 1}
+      onChange={(event, value) => onPage(value)}
+      renderItem={(item) => <PsPageItem item={item} />}
+      sx={{ '& ul': { gap: '6px' } }}
+    />
+  );
+  // The count's status is mounted from the first render and reads its text only while the pager shows (#3067).
+  // Hidden, the box is out of flow, so it takes no room and no flex gap.
+  const footer = (
+    <Box sx={showPager ? { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '16px' } : { position: 'absolute', width: '1px', height: '1px', overflow: 'hidden' }}>
+      {showPager && pager}
       <Box component="span" role="status" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>
-        {`${totalPlayers} player${totalPlayers === 1 ? '' : 's'}${search ? ` matching “${search}”` : ''}`}
+        {showPager ? `${totalPlayers} player${totalPlayers === 1 ? '' : 's'}${search ? ` matching “${search}”` : ''}` : ''}
       </Box>
     </Box>
   );
@@ -158,14 +163,14 @@ export default function PlayerPoolPlayselect({
       <>
         {phoneBar}
         {drawer}
-        <Box ref={topRef} data-testid="player-pool-top" tabIndex={-1} aria-busy={loading} sx={{ display: 'flex', flexDirection: 'column', gap: '10px', scrollMarginTop: '8px' }}>
+        <Box ref={topRef} role="region" aria-label="Players" data-testid="player-pool-top" tabIndex={-1} aria-busy={loading} sx={{ display: 'flex', flexDirection: 'column', gap: '10px', scrollMarginTop: '8px' }}>
           {placeholder && skeleton}
           {showEmpty && empty}
           {visiblePlayers.map((player) => (
             <React.Fragment key={player.id}>{renderRow(player, 'card')}</React.Fragment>
           ))}
         </Box>
-        {showPager && pager}
+        {footer}
       </>
     );
   }
@@ -217,7 +222,7 @@ export default function PlayerPoolPlayselect({
             </tbody>
           </Box>
         </Box>
-        {showPager && pager}
+        {footer}
       </Frame>
     </>
   );

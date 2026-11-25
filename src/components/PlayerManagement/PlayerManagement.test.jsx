@@ -811,6 +811,85 @@ test("a failed player-list read shows an alert with Try again, and Try again re-
   expect(playerReads()).toBe(readsBefore + 1);
 });
 
+// #3067: focus stays inside the page as the failed-read panel settles.
+test("a successful Try again moves focus to the page heading, not to the body (#3067)", async () => {
+  mockBrowser();
+  const listGet = apiClient.get.getMockImplementation();
+  let listReads = 0;
+  apiClient.get.mockImplementation((url, config) =>
+    url === "/api/players" && listReads++ === 0
+      ? Promise.reject(new Error("the player list is down"))
+      : listGet(url, config),
+  );
+  renderWithProviders(<PlayerManagement />);
+
+  await userEvent.click(within(await screen.findByRole("alert")).getByRole("button", { name: "Try again" }));
+
+  expect(await screen.findByText("Patrick Mahomes")).toBeInTheDocument();
+  /* eslint-disable testing-library/no-node-access -- PixelHeading takes no ref, so focus sits on the heading's wrapper, which has no role */
+  expect(document.activeElement).not.toBe(document.body);
+  expect(document.activeElement).toContainElement(screen.getByRole("heading", { level: 1, name: "Players" }));
+  /* eslint-enable testing-library/no-node-access */
+});
+
+test("a failed Try again replaces the alert and puts focus on the new Try again button (#3067)", async () => {
+  mockBrowser();
+  const listGet = apiClient.get.getMockImplementation();
+  apiClient.get.mockImplementation((url, config) =>
+    url === "/api/players" ? Promise.reject(new Error("the player list is down")) : listGet(url, config),
+  );
+  renderWithProviders(<PlayerManagement />);
+
+  const alert = await screen.findByRole("alert");
+  await userEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+
+  await waitFor(() => expect(screen.getByRole("alert")).not.toBe(alert));
+  const fresh = screen.getByRole("alert");
+  expect(fresh).toHaveTextContent("the player list is down");
+  expect(within(fresh).getByRole("button", { name: "Try again" })).toHaveFocus();
+});
+
+// #3067: a search read that clears or remounts the failed-read panel leaves focus in the search field.
+test("a search that clears the failed-read panel leaves focus in the search field (#3067)", async () => {
+  mockBrowser();
+  const listGet = apiClient.get.getMockImplementation();
+  let listReads = 0;
+  apiClient.get.mockImplementation((url, config) =>
+    url === "/api/players" && listReads++ === 0
+      ? Promise.reject(new Error("the player list is down"))
+      : listGet(url, config),
+  );
+  renderWithProviders(<PlayerManagement />);
+  await screen.findByRole("alert");
+
+  const search = screen.getByLabelText("Search this list");
+  await userEvent.type(search, "smith");
+
+  await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  expect(search).toHaveFocus();
+});
+
+test("a search that remounts the failed-read panel leaves focus in the search field (#3067)", async () => {
+  mockBrowser();
+  const listGet = apiClient.get.getMockImplementation();
+  let listReads = 0;
+  apiClient.get.mockImplementation((url, config) => {
+    if (url !== "/api/players") return listGet(url, config);
+    listReads += 1;
+    return listReads === 1 || config.params.search
+      ? Promise.reject(new Error("the player list is down"))
+      : listGet(url, config);
+  });
+  renderWithProviders(<PlayerManagement />);
+  const alert = await screen.findByRole("alert");
+
+  const search = screen.getByLabelText("Search this list");
+  await userEvent.type(search, "smith");
+
+  await waitFor(() => expect(screen.getByRole("alert")).not.toBe(alert));
+  expect(search).toHaveFocus();
+});
+
 test("the list's failed-read panel stays while Try again is in flight, and clears when the read succeeds (#3056)", async () => {
   mockBrowser();
   const listGet = apiClient.get.getMockImplementation();
