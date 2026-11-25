@@ -1,18 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import {
-  Box,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-} from "@mui/material";
+import { Box } from "@mui/material";
 import apiClient from "../../api/apiClient";
 import { readHttpFailure } from "../../lib/httpFailure";
 import PlayerDecisionCard, { myTeam, freeAgent, waivers, rostered } from "../../widgets/player-decision-card";
 import { toDecisionCardEntry } from "../../entities/player";
 import { useWaiverClaims } from "../../entities/waiver-claim";
-import { PlayerPool } from "../../widgets/player-pool";
+import { PlayerPool, PsSelect } from "../../widgets/player-pool";
 import PlayerRow, { PlayerRowTableHead, playerRowColumnCount } from "../../widgets/player-row";
 import { AddDropSheet, useAddPlayer } from "../../features/add-player";
 import { DropConfirmationDialog, useDropPlayer } from "../../features/drop-player";
@@ -419,30 +413,19 @@ function PlayerManagement() {
           if (message === null) setError(null);
           else setListError(message);
         }}
-        leadingControl={(layout) => {
-          const row = layout === "row";
-          return (
-            <FormControl size="small" fullWidth={!row} sx={row ? { minWidth: 170 } : undefined}>
-              <InputLabel id="pm-league-label">League</InputLabel>
-              <Select
-                labelId="pm-league-label"
-                label="League"
-                value={
-                  leagues.some((league) => String(league.id) === selectedLeague)
-                    ? selectedLeague
-                    : ""
-                }
-                onChange={(event) => updateParams({ league: event.target.value, page: 1 })}
-              >
-                {leagues.map((league) => (
-                  <MenuItem key={league.id} value={String(league.id)}>
-                    {league.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          );
-        }}
+        leadingControl={(layout) => (
+          <PsSelect
+            label="League"
+            value={
+              leagues.some((league) => String(league.id) === selectedLeague)
+                ? selectedLeague
+                : ""
+            }
+            onChange={(event) => updateParams({ league: event.target.value, page: 1 })}
+            options={leagues.map((league) => ({ value: String(league.id), label: league.name }))}
+            width={layout === "row" ? 200 : undefined}
+          />
+        )}
         afterAvailabilityControl={() =>
           pendingClaimCount !== null && !bestBall ? (
             <PsLink to={`/league/${Number(selectedLeague)}/waivers`}>
