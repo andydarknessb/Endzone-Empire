@@ -208,16 +208,16 @@ function FaabLadder() {
   return (
     <Box role="img" aria-label={`Recommended bids as a percent of budget: ${summary}`} sx={{ my: 3, display: 'grid', rowGap: 0.9 }}>
       {LADDER.map(([name, pos, min, max, top]) => (
-        <Box key={name} aria-hidden="true" sx={{ display: 'grid', gridTemplateColumns: { xs: '8.5em 1fr 3.6em', sm: '11em 1fr 4em' }, alignItems: 'center', gap: 1, fontSize: '0.85rem' }}>
-          <Box component="span" sx={{ fontWeight: top ? 800 : 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <Box key={name} aria-hidden="true" sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 13em) minmax(80px, 1fr) 4.6em', sm: '11em 1fr 4em' }, alignItems: 'center', gap: 1, fontSize: '0.85rem' }}>
+          <Box component="span" sx={{ fontWeight: top ? 800 : 600, overflowWrap: 'anywhere', whiteSpace: { xs: 'normal', sm: 'nowrap' }, overflow: { sm: 'hidden' }, textOverflow: { sm: 'ellipsis' } }}>
             <Box component="span" sx={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', bgcolor: POS_COLOR[pos], mr: 0.75 }} />
             {name}
           </Box>
           <BidTrack min={min} max={max} highlight={top} />
-          <Box component="span" sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{min}&ndash;{max}%</Box>
+          <Box component="span" sx={{ textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{min}&ndash;{max}%</Box>
         </Box>
       ))}
-      <Box aria-hidden="true" sx={{ display: 'grid', gridTemplateColumns: { xs: '8.5em 1fr 3.6em', sm: '11em 1fr 4em' }, gap: 1, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+      <Box aria-hidden="true" sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 13em) minmax(80px, 1fr) 4.6em', sm: '11em 1fr 4em' }, gap: 1, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
         <span />
         <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem' }}><span>0%</span><span>10%</span><span>20%</span></Box>
         <span />
