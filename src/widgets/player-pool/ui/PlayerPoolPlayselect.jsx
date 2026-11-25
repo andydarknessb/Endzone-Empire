@@ -29,8 +29,9 @@ export default function PlayerPoolPlayselect({
   watchingOnly, onWatching,
   availabilityLock, availabilityFilter, availabilityOptions, onAvailability,
   leadingControl, afterAvailabilityControl,
+  appliedFilters, onResetFilters,
   visiblePlayers, renderRow, renderTableHead, columnCount, bestBall, currentWeek, emptyCopy,
-  loading, placeholder, showEmpty, showPager,
+  loading, placeholder, showEmpty, showPager, showCount,
   totalPages, pageNumber, onPage, topRef, totalPlayers, search, stickyHead = false, regionClipped = false,
 }) {
   const searchField = (
@@ -91,9 +92,13 @@ export default function PlayerPoolPlayselect({
     </Box>
   );
 
+  // Reset sits under the copy at every width while a filter is applied (#3094).
   const empty = (
-    <Box component="p" sx={{ m: 0, padding: '20px', fontSize: '16px', fontWeight: 600, textAlign: cardLayout ? 'center' : undefined }}>
-      {emptyCopy}
+    <Box sx={{ padding: '20px', display: 'flex', flexDirection: 'column', alignItems: cardLayout ? 'center' : 'flex-start', gap: '12px' }}>
+      <Box component="p" sx={{ m: 0, fontSize: '16px', fontWeight: 600, textAlign: cardLayout ? 'center' : undefined }}>
+        {emptyCopy}
+      </Box>
+      {appliedFilters.length > 0 && <PsButton variant="ghost" onClick={onResetFilters}>Reset filters</PsButton>}
     </Box>
   );
 
@@ -115,23 +120,33 @@ export default function PlayerPoolPlayselect({
       sx={{ '& ul': { gap: cardLayout ? '4px' : '6px' } }}
     />
   );
-  // The count's status is mounted from the first render and reads its text only while the pager shows (#3067).
+  // The count's status is mounted from the first render and reads its text once a read has settled (#3067).
   // Past one page it names the page, so a page change is announced; the count alone is the same on every page (#3072).
+  // A zero total draws no pager, so the box is visually hidden and the text stays for assistive tech (#3094).
   // Hidden, the box is out of flow, so it takes no room and no flex gap. The phone footer has no side padding: the
   // page gutter alone leaves the 63-page pager room at 360 px; 16px more wraps it (#3088).
   const footer = (
     <Box sx={showPager ? { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: cardLayout ? '16px 0' : '16px' } : SR_ONLY_SX}>
       {showPager && pager}
       <Box component="span" role="status" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>
-        {showPager ? `${totalPages > 1 ? `Page ${pageNumber} of ${totalPages}, ` : ''}${totalPlayers} player${totalPlayers === 1 ? '' : 's'}${search ? ` matching “${search}”` : ''}` : ''}
+        {showCount ? `${totalPages > 1 ? `Page ${pageNumber} of ${totalPages}, ` : ''}${totalPlayers} player${totalPlayers === 1 ? '' : 's'}${search ? ` matching “${search}”` : ''}` : ''}
       </Box>
     </Box>
   );
 
+  // The applied filters are counted on the button and named under it, with Reset beside them (#3094).
   const phoneBar = (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-start', mb: '16px' }}>
       {searchField}
-      <PsButton variant="ghost" onClick={() => setFiltersOpen(true)}>Filters</PsButton>
+      <PsButton variant="ghost" onClick={() => setFiltersOpen(true)}>
+        {appliedFilters.length ? `Filters (${appliedFilters.length})` : 'Filters'}
+      </PsButton>
+      {appliedFilters.length > 0 && (
+        <Box data-testid="player-pool-filter-summary" sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 12px' }}>
+          <Box component="span" sx={{ fontSize: '14px', color: 'var(--ps-dim)' }}>{appliedFilters.join(', ')}</Box>
+          <PsButton variant="ghost" onClick={onResetFilters}>Reset filters</PsButton>
+        </Box>
+      )}
     </Box>
   );
 
@@ -152,9 +167,12 @@ export default function PlayerPoolPlayselect({
     >
       <Box sx={{ padding: '12px 14px', borderBottom: '2px solid var(--ps-rule)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
         <PixelHeading id="player-filters-heading" size={16}>Player filters</PixelHeading>
+      </Box>
+      {/* Done sits at the foot, full width under the controls, so it is the drawer's last control (#3094). */}
+      <Box sx={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        {controls('column')}
         <PsButton variant="ghost" onClick={() => setFiltersOpen(false)}>Done</PsButton>
       </Box>
-      <Box sx={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>{controls('column')}</Box>
     </Drawer>
   );
 

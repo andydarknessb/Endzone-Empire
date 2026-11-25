@@ -207,7 +207,7 @@ test("a later read with no rows on screen shows the skeleton and no pager", asyn
   apiClient.get.mockResolvedValueOnce(page([])).mockReturnValueOnce(held.promise);
   renderPool({ ref });
   expect(await screen.findByText("No players found")).toBeInTheDocument();
-  expect(screen.getByRole("navigation")).toBeInTheDocument();
+  expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
   act(() => {
     ref.current.refresh();
   });

@@ -260,18 +260,33 @@ const PlayerPool = forwardRef(function PlayerPool(
   const placeholder = !settled || (busy && visiblePlayers.length === 0);
   const showEmpty = !placeholder && lastOk && visiblePlayers.length === 0;
   // Rows only ever come from a successful read, so rows on screen mean one has landed.
-  const showPager = !placeholder && (lastOk || visiblePlayers.length > 0);
-  const emptyCopy = emptyCopyOverride && !watchingOnly && !search && !byeWeek
-    ? emptyCopyOverride
-    : watchingOnly
+  // The count's text names a settled read (#3094); the pager needs a total to page through, so a zero total draws none.
+  const counted = !placeholder && (lastOk || visiblePlayers.length > 0);
+  const showPager = counted && totalPlayers > 0;
+  // What the phone Filters button counts and names, in the controls' order (#3094). Sort and search are not filters.
+  const appliedFilters = [
+    selectedChip.key !== "All" ? selectedChip.key : null,
+    !availabilityLock && availabilityFilter !== "all"
+      ? AVAILABILITY_FILTERS.find((filter) => filter.value === availabilityFilter)?.label || availabilityFilter
+      : null,
+    byeWeek ? `Wk ${byeWeek}` : null,
+    watchingOnly ? "Watching" : null,
+  ].filter(Boolean);
+  const resetFilters = () => updateParams({ pos: "", availability: "", bye: "", watching: "", page: "" });
+  const inFilters = appliedFilters.length ? ` in ${appliedFilters.join(", ")}` : "";
+  const emptyCopy = watchingOnly
     ? "No watched players on this page"
     : search
-    ? `No players matching “${search}”`
-    : "No players found";
+    ? `No players matching “${search}”${inFilters}`
+    : emptyCopyOverride && !appliedFilters.length
+    ? emptyCopyOverride
+    : `No players found${inFilters}`;
 
   return (
     <PlayerPoolPlayselect
       isMobile={isMobile}
+      appliedFilters={appliedFilters}
+      onResetFilters={resetFilters}
       cardLayout={cardLayout}
       filtersOpen={filtersOpen}
       setFiltersOpen={setFiltersOpen}
@@ -309,6 +324,7 @@ const PlayerPool = forwardRef(function PlayerPool(
       placeholder={placeholder}
       showEmpty={showEmpty}
       showPager={showPager}
+      showCount={counted}
       totalPages={totalPages}
       pageNumber={pageNumber}
       onPage={(value) => {
