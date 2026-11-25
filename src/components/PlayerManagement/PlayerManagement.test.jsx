@@ -1500,6 +1500,63 @@ describe("roster moves from the row (#1974)", () => {
   });
 });
 
+// #3061: the page head says why roster moves are closed, as one visible line; the drafting note links to the Draft room.
+describe("phase note in the page head (#3061)", () => {
+  const freeAgents = [player({ id: 8, name: "Free Agent" })];
+
+  test("pre-draft: the note names the Draft Room, with no link", async () => {
+    mockBrowser({ leagues: [{ ...league, draft_status: "pending", season_status: "preseason" }], players: freeAgents });
+    renderWithProviders(<PlayerManagement />);
+
+    const note = await screen.findByTestId("players-phase-note");
+    expect(note).toHaveTextContent("Players are added through the Draft Room.");
+    expect(note).toBeVisible();
+    expect(within(note).queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  test("drafting: the note links to the Draft room, and the free-agent row reads Draft in progress and is disabled", async () => {
+    mockBrowser({ leagues: [{ ...league, draft_status: "active" }], players: freeAgents });
+    renderWithProviders(<PlayerManagement />);
+
+    const note = await screen.findByTestId("players-phase-note");
+    expect(note).toHaveTextContent("Draft picks must be made in the Draft Room.");
+    expect(within(note).getByRole("link", { name: "Open Draft Room" })).toHaveAttribute("href", "/league/1/draft");
+    expect(note).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Draft in progress" })).toBeDisabled();
+
+    // Not inside the screen-reader-only style. The row helper is the one SR-only node, so the probe must see it too.
+    const srOnly = (el) => getComputedStyle(el).position === "absolute" && getComputedStyle(el).width === "1px";
+    expect(srOnly(document.getElementById("player-row-helper-8"))).toBe(true);
+    for (let el = note; el; el = el.parentElement) expect(srOnly(el)).toBe(false);
+  });
+
+  test("complete: the note says roster moves are closed for the season", async () => {
+    mockBrowser({ leagues: [{ ...league, draft_status: "complete", season_status: "complete" }], players: freeAgents });
+    renderWithProviders(<PlayerManagement />);
+
+    expect(await screen.findByTestId("players-phase-note")).toHaveTextContent("Roster moves are closed for this season.");
+  });
+
+  test.each([
+    ["in season", { draft_status: "complete", season_status: "regular" }],
+    ["in the playoffs", { draft_status: "complete", season_status: "playoffs" }],
+  ])("%s: the page head has no phase note", async (_phase, overrides) => {
+    mockBrowser({ leagues: [{ ...league, ...overrides }], players: freeAgents });
+    renderWithProviders(<PlayerManagement />);
+
+    expect(await screen.findByRole("button", { name: "Add Free Agent" })).toBeEnabled();
+    expect(screen.queryByTestId("players-phase-note")).not.toBeInTheDocument();
+  });
+
+  test("no league selected: no phase note", async () => {
+    mockBrowser({ leagues: [] });
+    renderWithProviders(<PlayerManagement />);
+
+    expect(await screen.findByRole("link", { name: "Go to Leagues" })).toBeInTheDocument();
+    expect(screen.queryByTestId("players-phase-note")).not.toBeInTheDocument();
+  });
+});
+
 // ADR 0067 / spec #2453: the Players page is on Play-select. No cursor, no filled action outside a modal.
 /* eslint-disable testing-library/no-container, testing-library/no-node-access -- the Play-select look is asserted by its class and data-variant markup, which have no role */
 describe("Play-select look (spec #2453)", () => {

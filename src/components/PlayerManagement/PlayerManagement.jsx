@@ -12,7 +12,7 @@ import { AddDropSheet, useAddPlayer } from "../../features/add-player";
 import { DropConfirmationDialog, useDropPlayer } from "../../features/drop-player";
 import { useClaimPlayer } from "../../features/claim-player";
 import { proposeTradeHref } from "../../features/propose-trade";
-import { rosterActionForPhase } from "../../shared/lib/leaguePhase";
+import { deriveLeaguePhase, LEAGUE_PHASE, rosterActionForPhase } from "../../shared/lib/leaguePhase";
 import { isRosterAtCapacity } from "../../shared/lib/rosterCapacity";
 import { isPickemOnly } from "../../shared/lib/leagueType";
 import {
@@ -46,6 +46,7 @@ function PlayerManagement() {
     (league) => String(league.id) === selectedLeague,
   );
   const rosterAction = rosterActionForPhase(activeLeague);
+  const draftingNow = deriveLeaguePhase(activeLeague) === LEAGUE_PHASE.DRAFTING;
   const bestBall = !!activeLeague?.best_ball;
 
   const updateParams = useCallback(
@@ -361,6 +362,17 @@ function PlayerManagement() {
           {contextLine && (
             <Box component="p" sx={{ m: 0, fontSize: { xs: "16px", sm: "17px" }, color: "var(--ps-dim)" }}>
               {contextLine}
+            </Box>
+          )}
+          {rosterAction.disabled && (
+            <Box component="p" data-testid="players-phase-note" sx={{ m: 0, fontSize: { xs: "16px", sm: "17px" }, color: "var(--ps-dim)" }}>
+              {rosterAction.helper}
+              {draftingNow && (
+                <>
+                  {" "}
+                  <PsLink to={`/league/${activeLeague.id}/draft`}>Open Draft Room</PsLink>
+                </>
+              )}
             </Box>
           )}
         </Box>
