@@ -1526,7 +1526,9 @@ describe("phase note in the page head (#3061)", () => {
 
     // Not inside the screen-reader-only style. The row helper is the one SR-only node, so the probe must see it too.
     const srOnly = (el) => getComputedStyle(el).position === "absolute" && getComputedStyle(el).width === "1px";
-    expect(srOnly(document.getElementById("player-row-helper-8"))).toBe(true);
+    expect(srOnly(screen.getByText("Draft picks must be made in the Draft Room.", { selector: "span" }))).toBe(true);
+    // Testing Library has no query for "ancestor with this style", so the walk up the tree is direct.
+    // eslint-disable-next-line testing-library/no-node-access
     for (let el = note; el; el = el.parentElement) expect(srOnly(el)).toBe(false);
   });
 
