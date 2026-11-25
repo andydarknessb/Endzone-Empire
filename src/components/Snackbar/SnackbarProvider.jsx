@@ -51,9 +51,9 @@ export function SnackbarProvider({ children }) {
       severity: options.severity || 'success',
       actionLabel: options.actionLabel,
       onAction: options.onAction,
-      // Reversible actions linger 20s (WCAG 2.2.1 floor) so the Undo is reachable;
-      // MUI still pauses the timer while the toast has focus or hover.
-      duration: options.duration ?? (options.onAction ? 20000 : 4000),
+      // Reversible actions linger 20s (WCAG 2.2.1 floor) so the Undo is reachable; an error is the one report of a
+      // refused move, so it lingers 10s. MUI still pauses the timer while the toast has focus or hover.
+      duration: options.duration ?? (options.onAction ? 20000 : options.severity === 'error' ? 10000 : 4000),
       key: Date.now(),
     });
     setOpen(true);
