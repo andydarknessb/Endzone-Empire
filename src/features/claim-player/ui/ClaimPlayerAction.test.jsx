@@ -56,6 +56,38 @@ test('a FAAB league shows the bid field, invalid over budget, and posts the bid 
   });
 });
 
+test('a FAAB league opens with no bid error before the field is touched', () => {
+  renderAction({ availability: { faabRemaining: 42 } });
+
+  expect(screen.getByLabelText('Bid')).toHaveAttribute('aria-invalid', 'false');
+  expect(screen.getByText('$42 remaining')).toBeInTheDocument();
+  expect(screen.queryByText('Enter a whole-dollar bid between $0 and $42')).not.toBeInTheDocument();
+  expect(screen.getByTestId('claim-player-submit')).toBeDisabled();
+});
+
+test('focusing then blurring an empty bid marks it invalid', async () => {
+  renderAction({ availability: { faabRemaining: 42 } });
+
+  const bid = screen.getByLabelText('Bid');
+  await userEvent.click(bid);
+  await userEvent.tab();
+
+  expect(bid).toHaveAttribute('aria-invalid', 'true');
+  expect(screen.getByText('Enter a whole-dollar bid between $0 and $42')).toBeInTheDocument();
+});
+
+test('typing then clearing the bid leaves it invalid with the range sentence', async () => {
+  renderAction({ availability: { faabRemaining: 42 } });
+
+  const bid = screen.getByLabelText('Bid');
+  await userEvent.type(bid, '5');
+  await userEvent.clear(bid);
+
+  expect(bid).toHaveAttribute('aria-invalid', 'true');
+  expect(screen.getByText('Enter a whole-dollar bid between $0 and $42')).toBeInTheDocument();
+  expect(screen.getByTestId('claim-player-submit')).toBeDisabled();
+});
+
 test('a fractional bid disables Claim and never posts', async () => {
   renderAction({ availability: { faabRemaining: 85 } });
 
