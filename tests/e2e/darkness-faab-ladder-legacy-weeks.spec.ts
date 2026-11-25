@@ -21,6 +21,7 @@ const PHONE_VIEWPORTS = [
 
 const AXIS_VIEWPORTS = [
   { label: '390x844', width: 390, height: 844 },
+  { label: '320x568', width: 320, height: 568 },
   { label: '1280x800', width: 1280, height: 800 },
 ];
 
