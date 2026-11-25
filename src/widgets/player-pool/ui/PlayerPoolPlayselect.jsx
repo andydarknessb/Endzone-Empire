@@ -116,12 +116,13 @@ export default function PlayerPoolPlayselect({
     />
   );
   // The count's status is mounted from the first render and reads its text only while the pager shows (#3067).
+  // Past one page it names the page, so a page change is announced; the count alone is the same on every page (#3072).
   // Hidden, the box is out of flow, so it takes no room and no flex gap.
   const footer = (
     <Box sx={showPager ? { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '16px' } : SR_ONLY_SX}>
       {showPager && pager}
       <Box component="span" role="status" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>
-        {showPager ? `${totalPlayers} player${totalPlayers === 1 ? '' : 's'}${search ? ` matching “${search}”` : ''}` : ''}
+        {showPager ? `${totalPages > 1 ? `Page ${pageNumber} of ${totalPages}, ` : ''}${totalPlayers} player${totalPlayers === 1 ? '' : 's'}${search ? ` matching “${search}”` : ''}` : ''}
       </Box>
     </Box>
   );
@@ -186,7 +187,11 @@ export default function PlayerPoolPlayselect({
           aria-label="Players, scrollable"
           // A tab stop only where it scrolls: not where stickyHead clips it from lg (#3058).
           tabIndex={regionClipped ? undefined : 0}
-          sx={{ overflowX: stickyHead ? { xs: 'auto', lg: 'clip' } : 'auto', position: 'relative', containerType: 'inline-size' }}
+          // The table's focus ring is drawn here: the region's overflow clips the table's own outline (#3072).
+          sx={{
+            overflowX: stickyHead ? { xs: 'auto', lg: 'clip' } : 'auto', position: 'relative', containerType: 'inline-size',
+            '&:has(> table:focus-visible)': { outline: '3px solid var(--ps-focus)', outlineOffset: 0, boxShadow: '0 0 0 7px var(--ps-halo)' },
+          }}
         >
           <Box
             component="table"
@@ -198,6 +203,8 @@ export default function PlayerPoolPlayselect({
             sx={{
               width: '100%',
               scrollMarginTop: '8px',
+              // Off here, so the region's ring stands alone; && outranks .ps-root :focus-visible (#3072).
+              '&&:focus-visible': { outline: 'none', boxShadow: 'none' },
               borderCollapse: 'separate',
               borderSpacing: 0,
               minWidth: '950px',

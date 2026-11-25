@@ -264,35 +264,128 @@ async function pressPageTwoFromBottom(page: Page) {
   await page.getByRole('button', { name: 'Go to page 2' }).click();
 }
 
+// The list top's document position, read before the press (scroll does not change it): the press scrolls the top to
+// scrollMarginTop (8px) below the viewport's top edge, or as near as the document can scroll.
+function listDocTop(page: Page) {
+  return page.evaluate(() => {
+    const top = document.querySelector('[data-testid="player-pool-top"]') as HTMLElement;
+    return top.getBoundingClientRect().top + window.scrollY;
+  });
+}
+
+async function expectListTopAtMargin(page: Page, docTop: number) {
+  const box = await page.getByTestId('player-pool-top').boundingBox();
+  expect(box, 'the list top must have a measurable box').not.toBeNull();
+  const expected = await page.evaluate(
+    (top) => Math.max(8, top - (document.documentElement.scrollHeight - window.innerHeight)),
+    docTop,
+  );
+  expect(Math.abs(box!.y - expected), `list top ${box!.y} on page 2, expected ${expected}`).toBeLessThanOrEqual(1);
+}
+
 test('390x844: Go to page 2 from the bottom focuses the list top and puts the first card of page 2 in view', async ({ page }) => {
   await setupPlayersPageLayout(page, { pages: 3 });
   await page.setViewportSize(PHONE);
   await page.goto(PLAYERS_LAYOUT_URL);
   await expect(page.getByTestId('player-row-card').first()).toBeVisible();
+  const docTop = await listDocTop(page);
   await pressPageTwoFromBottom(page);
   const card = page.getByTestId('player-row-card').first();
   await expect(card).toContainText('Pager Player 11');
   await expect(page.getByTestId('player-pool-top')).toBeFocused();
+  await expectListTopAtMargin(page, docTop);
   const box = await card.boundingBox();
   expect(box, 'the first card must have a measurable box').not.toBeNull();
   expect(box!.y, `first card top ${box!.y} on page 2`).toBeGreaterThanOrEqual(0);
   expect(box!.y, `first card top ${box!.y} on page 2`).toBeLessThanOrEqual(PHONE.height);
 });
 
-test('1440x900: Go to page 2 from the bottom focuses the list top, and the list top is in view', async ({ page }) => {
+test('1440x900: Go to page 2 from the bottom focuses the list top, and the list top is at the scroll margin', async ({ page }) => {
   await setupPlayersPageLayout(page, { pages: 3 });
   await page.setViewportSize(DESKTOP);
   await page.goto(PLAYERS_LAYOUT_URL);
   await expect(page.getByTestId('player-row')).toHaveCount(10);
+  const docTop = await listDocTop(page);
   await pressPageTwoFromBottom(page);
   await expect(page.getByTestId('player-row').first()).toContainText('Pager Player 11');
-  const top = page.getByTestId('player-pool-top');
-  await expect(top).toBeFocused();
-  const box = await top.boundingBox();
-  expect(box, 'the list top must have a measurable box').not.toBeNull();
-  expect(box!.y, `list top ${box!.y} on page 2`).toBeGreaterThanOrEqual(0);
-  expect(box!.y, `list top ${box!.y} on page 2`).toBeLessThanOrEqual(DESKTOP.height);
+  await expect(page.getByTestId('player-pool-top')).toBeFocused();
+  await expectListTopAtMargin(page, docTop);
 });
+
+// #3072: the focus ring is drawn on the scroll region, the table's parent, which the region's overflow cannot clip, and
+// the table's own ring is off. A keyboard press shows the ring; a mouse press does not.
+const RING_VIEWPORTS = [
+  { width: 1440, height: 900 }, // stickyHead clips the region from lg (overflow-x: clip)
+  { width: 1100, height: 800 }, // below lg the region scrolls (overflow-x: auto), and the table still renders
+];
+
+for (const viewport of RING_VIEWPORTS) {
+  for (const theme of ['light', 'dark'] as const) {
+    test(`${viewport.width}x${viewport.height} ${theme}: a keyboard press on Go to page 2 rings the scroll region, not the table`, async ({ page }) => {
+      await setTheme(page, theme);
+      await setupPlayersPageLayout(page, { pages: 3 });
+      await page.setViewportSize(viewport);
+      await page.goto(PLAYERS_LAYOUT_URL);
+      await expect(page.getByTestId('player-row')).toHaveCount(10);
+      await page.getByRole('button', { name: 'Go to page 2' }).focus();
+      await page.keyboard.press('Enter');
+      const top = page.getByTestId('player-pool-top');
+      await expect(top).toBeFocused();
+      expect(await top.evaluate((el) => el.tagName), 'the list top is the table at this width').toBe('TABLE');
+      const ring = await top.evaluate((el) => {
+        const region = el.closest('[role="region"]') as HTMLElement;
+        const style = getComputedStyle(region);
+        const table = getComputedStyle(el);
+        const box = region.getBoundingClientRect();
+        const clippers: string[] = [];
+        for (let node = region.parentElement; node; node = node.parentElement) {
+          const s = getComputedStyle(node);
+          if (s.overflowX !== 'visible' || s.overflowY !== 'visible') clippers.push(node.className || node.tagName);
+          if (node.classList.contains('ps-root')) break;
+        }
+        return {
+          region: {
+            outlineStyle: style.outlineStyle,
+            outlineWidth: style.outlineWidth,
+            outlineOffset: style.outlineOffset,
+            outlineColor: style.outlineColor,
+            boxShadow: style.boxShadow,
+          },
+          table: { outlineStyle: table.outlineStyle, boxShadow: table.boxShadow },
+          clippers,
+          widened: { left: box.left - 10, right: box.right + 10, innerWidth: window.innerWidth },
+        };
+      });
+      expect(ring.region.outlineStyle, 'the region draws the ring').toBe('solid');
+      expect(ring.region.outlineWidth).toBe('3px');
+      expect(ring.region.outlineOffset).toBe('0px');
+      expect(ring.region.outlineColor).toBe('rgb(255, 255, 255)');
+      expect(ring.region.boxShadow).toContain('rgb(7, 8, 15)');
+      expect(ring.region.boxShadow).toContain('7px');
+      expect(ring.table).toEqual({ outlineStyle: 'none', boxShadow: 'none' });
+      expect(ring.clippers, 'no ancestor of the region clips the ring').toEqual([]);
+      expect(ring.widened.left, 'the ring starts inside the viewport').toBeGreaterThanOrEqual(0);
+      expect(ring.widened.right, 'the ring ends inside the viewport').toBeLessThanOrEqual(ring.widened.innerWidth);
+    });
+
+    test(`${viewport.width}x${viewport.height} ${theme}: a mouse press on Go to page 2 draws no ring`, async ({ page }) => {
+      await setTheme(page, theme);
+      await setupPlayersPageLayout(page, { pages: 3 });
+      await page.setViewportSize(viewport);
+      await page.goto(PLAYERS_LAYOUT_URL);
+      await expect(page.getByTestId('player-row')).toHaveCount(10);
+      await page.getByRole('button', { name: 'Go to page 2' }).click();
+      await expect(page.getByTestId('player-row').first()).toContainText('Pager Player 11');
+      const top = page.getByTestId('player-pool-top');
+      await expect(top).toBeFocused();
+      const outline = await top.evaluate((el) => ({
+        region: getComputedStyle(el.closest('[role="region"]') as HTMLElement).outlineStyle,
+        table: getComputedStyle(el).outlineStyle,
+      }));
+      expect(outline).toEqual({ region: 'none', table: 'none' });
+    });
+  }
+}
 
 // Play-select (spec #2453): the page has no cursor and no filled action, never scrolls sideways, and
 // every button is 44px, or 36px inside the desktop table.
