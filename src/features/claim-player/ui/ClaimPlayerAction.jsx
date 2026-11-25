@@ -25,6 +25,14 @@ export default function ClaimPlayerAction({
 }) {
   const [dropPlayerId, setDropPlayerId] = useState('');
   const [bid, setBid] = useState('');
+  const [bidTouched, setBidTouched] = useState(false);
+  // The Players page swaps `player` in place, so a new player starts with an empty, untouched bid.
+  const [bidPlayerId, setBidPlayerId] = useState(player.playerId);
+  if (bidPlayerId !== player.playerId) {
+    setBidPlayerId(player.playerId);
+    setBid('');
+    setBidTouched(false);
+  }
   const { submitClaim, pending } = useClaimPlayer({ leagueId, onDone: onClaimed });
 
   const isFaab = availability?.faabRemaining != null;
@@ -35,6 +43,7 @@ export default function ClaimPlayerAction({
   const dropLabel = atCapacity ? 'Drop a player' : 'Drop a player (optional)';
 
   const bidInvalid = isFaab && !isValidBid({ bid, faabRemaining });
+  const showBidError = bidInvalid && bidTouched;
 
   const handleClaim = () => {
     submitClaim({
@@ -85,9 +94,10 @@ export default function ClaimPlayerAction({
             type="number"
             fullWidth
             value={bid}
-            onChange={(e) => setBid(e.target.value)}
-            error={bidInvalid}
-            helperText={bidInvalid ? bidHelperText(faabRemaining) : `$${faabRemaining} remaining`}
+            onChange={(e) => { setBid(e.target.value); setBidTouched(true); }}
+            onBlur={() => setBidTouched(true)}
+            error={showBidError}
+            helperText={showBidError ? bidHelperText(faabRemaining) : `$${faabRemaining} remaining`}
             inputProps={{ min: 0, max: faabRemaining, step: 1 }}
             InputProps={{ sx: FIELD_SX }}
             sx={HINT_SX}
