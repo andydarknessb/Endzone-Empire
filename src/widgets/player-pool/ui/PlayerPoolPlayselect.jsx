@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Drawer, Pagination } from '@mui/material';
 import { SegmentedControl } from '../../../shared/ui';
 import {
-  BODY_FONT, Frame, FrameHead, PixelHeading, PsButton,
+  BODY_FONT, Frame, FrameHead, PixelHeading, PsButton, SR_ONLY_SX, Skel,
 } from '../../../shared/ui/playselect';
 import {
   PsCheck, PsField, PsIconButton, PsPageItem, PsSelect,
@@ -30,11 +30,12 @@ export default function PlayerPoolPlayselect({
   availabilityLock, availabilityFilter, availabilityOptions, onAvailability,
   leadingControl, afterAvailabilityControl,
   visiblePlayers, renderRow, renderTableHead, columnCount, bestBall, currentWeek, emptyCopy,
-  totalPages, pageNumber, onPage, totalPlayers, search, stickyHead = false,
+  loading, placeholder, showEmpty, showPager,
+  totalPages, pageNumber, onPage, topRef, totalPlayers, search, stickyHead = false, regionClipped = false,
 }) {
   const searchField = (
     <PsField
-      label="Search players"
+      label="Search this list"
       placeholder="Search by name"
       value={searchInput}
       onChange={(event) => setSearchInput(event.target.value)}
@@ -96,17 +97,32 @@ export default function PlayerPoolPlayselect({
     </Box>
   );
 
+  // The skeleton rows a loading list holds (#3056): Skel blocks, hidden from assistive tech.
+  const skeleton = (
+    <Box data-testid="player-pool-loading" sx={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '16px 20px' }}>
+      {[100, 88, 94, 80, 90, 84].map((pct) => <Skel key={pct} width={`${pct}%`} height={20} />)}
+    </Box>
+  );
+
+  // The phone pager fits one row: no sibling pages beside the current one (#3058).
   const pager = (
-    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '16px' }}>
-      <Pagination
-        count={totalPages}
-        page={pageNumber}
-        onChange={(event, value) => onPage(value)}
-        renderItem={(item) => <PsPageItem item={item} />}
-        sx={{ '& ul': { gap: '6px' } }}
-      />
-      <Box component="span" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>
-        {`${totalPlayers} player${totalPlayers === 1 ? '' : 's'}${search ? ` matching “${search}”` : ''}`}
+    <Pagination
+      count={totalPages}
+      page={pageNumber}
+      siblingCount={cardLayout ? 0 : 1}
+      onChange={(event, value) => onPage(value)}
+      renderItem={(item) => <PsPageItem item={item} />}
+      sx={{ '& ul': { gap: '6px' } }}
+    />
+  );
+  // The count's status is mounted from the first render and reads its text only while the pager shows (#3067).
+  // Past one page it names the page, so a page change is announced; the count alone is the same on every page (#3072).
+  // Hidden, the box is out of flow, so it takes no room and no flex gap.
+  const footer = (
+    <Box sx={showPager ? { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '16px' } : SR_ONLY_SX}>
+      {showPager && pager}
+      <Box component="span" role="status" sx={{ fontSize: '13px', color: 'var(--ps-dim)' }}>
+        {showPager ? `${totalPages > 1 ? `Page ${pageNumber} of ${totalPages}, ` : ''}${totalPlayers} player${totalPlayers === 1 ? '' : 's'}${search ? ` matching “${search}”` : ''}` : ''}
       </Box>
     </Box>
   );
@@ -125,6 +141,9 @@ export default function PlayerPoolPlayselect({
       onClose={() => setFiltersOpen(false)}
       className="ps-root"
       PaperProps={{
+        role: 'dialog',
+        'aria-modal': true,
+        'aria-labelledby': 'player-filters-heading',
         sx: {
           border: '6px double var(--ps-frame)', borderRadius: 0, fontFamily: BODY_FONT, backgroundColor: 'var(--ps-panel)', color: 'var(--ps-ink)', backgroundImage: 'none',
         },
@@ -138,18 +157,21 @@ export default function PlayerPoolPlayselect({
     </Drawer>
   );
 
+  // The list's top (#3057): a pager press focuses the list element itself, since an extra element would take a
+  // flex gap (24px in PlayerManagement). scrollMarginTop keeps the rounded scroll from landing just above the edge.
   if (cardLayout) {
     return (
       <>
         {phoneBar}
         {drawer}
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {visiblePlayers.length === 0 && empty}
+        <Box ref={topRef} role="region" aria-label="Players" data-testid="player-pool-top" tabIndex={-1} aria-busy={loading} sx={{ display: 'flex', flexDirection: 'column', gap: '10px', scrollMarginTop: '8px' }}>
+          {placeholder && skeleton}
+          {showEmpty && empty}
           {visiblePlayers.map((player) => (
             <React.Fragment key={player.id}>{renderRow(player, 'card')}</React.Fragment>
           ))}
         </Box>
-        {pager}
+        {footer}
       </>
     );
   }
@@ -163,14 +185,26 @@ export default function PlayerPoolPlayselect({
         <Box
           role="region"
           aria-label="Players, scrollable"
-          tabIndex={0}
-          sx={{ overflowX: stickyHead ? { xs: 'auto', lg: 'clip' } : 'auto', position: 'relative', containerType: 'inline-size' }}
+          // A tab stop only where it scrolls: not where stickyHead clips it from lg (#3058).
+          tabIndex={regionClipped ? undefined : 0}
+          // The table's focus ring is drawn here: the region's overflow clips the table's own outline (#3072).
+          sx={{
+            overflowX: stickyHead ? { xs: 'auto', lg: 'clip' } : 'auto', position: 'relative', containerType: 'inline-size',
+            '&:has(> table:focus-visible)': { outline: '3px solid var(--ps-focus)', outlineOffset: 0, boxShadow: '0 0 0 7px var(--ps-halo)' },
+          }}
         >
           <Box
             component="table"
+            ref={topRef}
+            data-testid="player-pool-top"
+            tabIndex={-1}
             aria-label="Players"
+            aria-busy={loading}
             sx={{
               width: '100%',
+              scrollMarginTop: '8px',
+              // Off here, so the region's ring stands alone; && outranks .ps-root :focus-visible (#3072).
+              '&&:focus-visible': { outline: 'none', boxShadow: 'none' },
               borderCollapse: 'separate',
               borderSpacing: 0,
               minWidth: '950px',
@@ -183,7 +217,10 @@ export default function PlayerPoolPlayselect({
           >
             <thead>{renderTableHead({ bestBall, currentWeek })}</thead>
             <tbody>
-              {visiblePlayers.length === 0 && (
+              {placeholder && (
+                <tr><Box component="td" colSpan={columnCount} sx={{ padding: 0 }}>{skeleton}</Box></tr>
+              )}
+              {showEmpty && (
                 <tr><Box component="td" colSpan={columnCount} sx={{ padding: 0 }}>{empty}</Box></tr>
               )}
               {visiblePlayers.map((player) => (
@@ -192,7 +229,7 @@ export default function PlayerPoolPlayselect({
             </tbody>
           </Box>
         </Box>
-        {pager}
+        {footer}
       </Frame>
     </>
   );

@@ -1,24 +1,18 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import {
-  Box,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-} from "@mui/material";
+import { Box } from "@mui/material";
 import apiClient from "../../api/apiClient";
 import { readHttpFailure } from "../../lib/httpFailure";
 import PlayerDecisionCard, { myTeam, freeAgent, waivers, rostered } from "../../widgets/player-decision-card";
 import { toDecisionCardEntry } from "../../entities/player";
 import { useWaiverClaims } from "../../entities/waiver-claim";
-import { PlayerPool } from "../../widgets/player-pool";
+import { PlayerPool, PsSelect } from "../../widgets/player-pool";
 import PlayerRow, { PlayerRowTableHead, playerRowColumnCount } from "../../widgets/player-row";
 import { AddDropSheet, useAddPlayer } from "../../features/add-player";
 import { DropConfirmationDialog, useDropPlayer } from "../../features/drop-player";
 import { useClaimPlayer } from "../../features/claim-player";
 import { proposeTradeHref } from "../../features/propose-trade";
-import { rosterActionForPhase } from "../../shared/lib/leaguePhase";
+import { deriveLeaguePhase, LEAGUE_PHASE, rosterActionForPhase } from "../../shared/lib/leaguePhase";
 import { isRosterAtCapacity } from "../../shared/lib/rosterCapacity";
 import { isPickemOnly } from "../../shared/lib/leagueType";
 import {
@@ -37,9 +31,23 @@ function PlayerManagement() {
   const [leaguesLoaded, setLeaguesLoaded] = useState(false);
   const [players, setPlayers] = useState([]);
   const [context, setContext] = useState(null);
+  // A failed league read only: a refused add or claim is the feature's toast (#3059).
   const [error, setError] = useState(null);
+  // The player list's own failed read (#3056): the one panel that offers Try again.
+  const [listError, setListError] = useState(null);
+  // A failed read bumps the key, so the panel remounts and its alert is announced again (#3067).
+  const [listErrorKey, setListErrorKey] = useState(0);
   const [quickViewId, setQuickViewId] = useState(null);
   const poolRef = useRef(null);
+  // Focus that sat in the failed-read panel moves before the panel unmounts or remounts (#3067).
+  const listErrorRef = useRef(null);
+  const listHeadingRef = useRef(null);
+  const focusListError = useRef(false);
+  useEffect(() => {
+    if (!focusListError.current) return;
+    focusListError.current = false;
+    listErrorRef.current?.querySelector("button")?.focus();
+  }, [listErrorKey]);
   // Formal review round 1, f3: the Decision card's free-agent action bar
   // needs the caller's own roster for its at-capacity drop pick.
   const [roster, setRoster] = useState([]);
@@ -49,6 +57,7 @@ function PlayerManagement() {
     (league) => String(league.id) === selectedLeague,
   );
   const rosterAction = rosterActionForPhase(activeLeague);
+  const draftingNow = deriveLeaguePhase(activeLeague) === LEAGUE_PHASE.DRAFTING;
   const bestBall = !!activeLeague?.best_ball;
 
   const updateParams = useCallback(
@@ -75,25 +84,27 @@ function PlayerManagement() {
     [],
   );
 
+  // Read once on mount: a read keyed on the URL params re-ran on every filter, search and page move (#3059).
   useEffect(() => {
     (async () => {
       try {
         const response = await apiClient.get("/api/league");
-        const rosterLeagues = response.data.filter(
-          (league) => !isPickemOnly(league),
-        );
-        setLeagues(rosterLeagues);
+        setLeagues(response.data.filter((league) => !isPickemOnly(league)));
         setLeaguesLoaded(true);
-        if (
-          rosterLeagues.length > 0 &&
-          !rosterLeagues.some((league) => String(league.id) === selectedLeague)
-        )
-          updateParams({ league: rosterLeagues[0].id, page: 1 });
       } catch (err) {
         report(err);
       }
     })();
-  }, [report, selectedLeague, updateParams]);
+  }, [report]);
+
+  // The first fantasy league stands in when the URL names none, or one the viewer is not in.
+  useEffect(() => {
+    if (
+      leagues.length > 0 &&
+      !leagues.some((league) => String(league.id) === selectedLeague)
+    )
+      updateParams({ league: leagues[0].id, page: 1 });
+  }, [leagues, selectedLeague, updateParams]);
 
   const fetchRoster = useCallback(async () => {
     if (!selectedLeague) {
@@ -154,13 +165,12 @@ function PlayerManagement() {
   // a parallel POST that could drift from it (the lead correction's own
   // wording: "PlayerManagement then consumes the feature").
   const { addPlayer } = useAddPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
+  // A refused add is the feature's toast alone (#3059): the page keeps no copy.
   const addToRoster = useCallback(
     async (player) => {
-      setError(null);
       setPendingPlayerId(player.id);
-      const { ok, message } = await addPlayer({ playerId: player.id, playerName: player.name });
+      await addPlayer({ playerId: player.id, playerName: player.name });
       setPendingPlayerId(null);
-      if (!ok) setError(message);
     },
     [addPlayer],
   );
@@ -188,11 +198,9 @@ function PlayerManagement() {
   const { submitClaim } = useClaimPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
   const claimFromRow = useCallback(
     async (player) => {
-      setError(null);
       setPendingPlayerId(player.id);
-      const { ok, message } = await submitClaim({ playerId: player.id, dropPlayerId: null, bid: 0 });
+      await submitClaim({ playerId: player.id, dropPlayerId: null, bid: 0 });
       setPendingPlayerId(null);
-      if (!ok) setError(message);
     },
     [submitClaim],
   );
@@ -354,7 +362,9 @@ function PlayerManagement() {
         sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: "12px", rowGap: "8px" }}
       >
         <Box sx={{ display: "flex", flexDirection: "column", gap: "4px", minWidth: 0, flex: 1 }}>
-          <PixelHeading level={1}>Players</PixelHeading>
+          <Box ref={listHeadingRef} tabIndex={-1}>
+            <PixelHeading level={1}>Players</PixelHeading>
+          </Box>
           {/* Below md the League select lives in the Filters drawer, so the
               header names the league there. */}
           {activeLeague?.name && (
@@ -367,6 +377,17 @@ function PlayerManagement() {
               {contextLine}
             </Box>
           )}
+          {rosterAction.disabled && (
+            <Box component="p" data-testid="players-phase-note" sx={{ m: 0, fontSize: { xs: "16px", sm: "17px" }, color: "var(--ps-dim)" }}>
+              {rosterAction.helper}
+              {draftingNow && (
+                <>
+                  {" "}
+                  <PsLink to={`/league/${activeLeague.id}/draft`}>Open Draft Room</PsLink>
+                </>
+              )}
+            </Box>
+          )}
         </Box>
         {selectedLeague && (
           <PsButton to={`/league/${selectedLeague}/lineup`}>Manage lineup</PsButton>
@@ -374,6 +395,15 @@ function PlayerManagement() {
       </Box>
       {error && (
         <ErrorPanel title="Something went wrong" body={error} />
+      )}
+      {listError && (
+        <Box key={listErrorKey} ref={listErrorRef}>
+          <ErrorPanel
+            title="Something went wrong"
+            body={listError}
+            onRetry={() => poolRef.current?.refresh()}
+          />
+        </Box>
       )}
       {leaguesLoaded && leagues.length === 0 && (
         <Box component="p" sx={{ m: 0, fontSize: "16px", color: "var(--ps-dim)" }}>
@@ -403,32 +433,35 @@ function PlayerManagement() {
         onLoaded={({ players: nextPlayers, context: nextContext }) => {
           setPlayers(nextPlayers);
           setContext(nextContext);
+          // Focus in the panel goes to the page heading; focus elsewhere (a search field) stays put (#3067).
+          if (listErrorRef.current?.contains(document.activeElement)) {
+            listHeadingRef.current?.focus({ preventScroll: true });
+          }
+          setListError(null);
         }}
-        onError={setError}
-        leadingControl={(layout) => {
-          const row = layout === "row";
-          return (
-            <FormControl size="small" fullWidth={!row} sx={row ? { minWidth: 170 } : undefined}>
-              <InputLabel id="pm-league-label">League</InputLabel>
-              <Select
-                labelId="pm-league-label"
-                label="League"
-                value={
-                  leagues.some((league) => String(league.id) === selectedLeague)
-                    ? selectedLeague
-                    : ""
-                }
-                onChange={(event) => updateParams({ league: event.target.value, page: 1 })}
-              >
-                {leagues.map((league) => (
-                  <MenuItem key={league.id} value={String(league.id)}>
-                    {league.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          );
+        onError={(message) => {
+          // A read starting clears the page's own danger panel; the list's own failure stays until a read succeeds.
+          if (message === null) {
+            setError(null);
+            return;
+          }
+          focusListError.current = !!listErrorRef.current?.contains(document.activeElement);
+          setListError(message);
+          setListErrorKey((key) => key + 1);
         }}
+        leadingControl={(layout) => (
+          <PsSelect
+            label="League"
+            value={
+              leagues.some((league) => String(league.id) === selectedLeague)
+                ? selectedLeague
+                : ""
+            }
+            onChange={(event) => updateParams({ league: event.target.value, page: 1 })}
+            options={leagues.map((league) => ({ value: String(league.id), label: league.name }))}
+            width={layout === "row" ? 200 : undefined}
+          />
+        )}
         afterAvailabilityControl={() =>
           pendingClaimCount !== null && !bestBall ? (
             <PsLink to={`/league/${Number(selectedLeague)}/waivers`}>

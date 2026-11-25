@@ -41,13 +41,18 @@ const AVAILABILITY_FILTERS = [
  * controls that are not the list's own (`leadingControl`, `afterAvailabilityControl`).
  * `onLoaded({ players, context, total })` reports every successful read so the caller
  * can build the Decision card context over the same page of players; `onError`
- * receives the refusal message, or null when a read starts. `ref.refresh()`
- * re-reads the list after a caller's action.
+ * receives the refusal message, or null when a read starts. A read that a newer
+ * one has superseded sets and reports nothing (#3054). `ref.refresh()` re-reads
+ * the list after a caller's action. Until a read settles the list draws skeleton rows
+ * (`player-pool-loading`); the empty message, pager and count wait for a settled read, and `aria-busy`
+ * marks a read in flight (#3056). A pager press focuses the list top and scrolls it to the viewport top; no other
+ * control moves focus (#3057).
  *
  * `byeWeekFilter`: renders a Bye week control (`?bye=`, one week) that sends
  * `byeWeeks`, the read's include-only filter; off by default, so the Players
  * page is unchanged. `stickyHead` makes the desktop table head stick to the
- * viewport top from `lg` (default off). `cardsBelow` is the breakpoint under which rows render as
+ * viewport top from `lg` (default off), and from `lg` clips the list's scroll region, which then has no tab
+ * stop (#3058). `cardsBelow` is the breakpoint under which rows render as
  * cards (default `md`, the Filters drawer's own breakpoint; the Waivers page
  * passes `sm`). `emptyCopy` replaces the default empty message.
  *
@@ -79,10 +84,14 @@ const PlayerPool = forwardRef(function PlayerPool(
   const [players, setPlayers] = useState([]);
   const [totalPages, setTotalPages] = useState(1);
   const [totalPlayers, setTotalPlayers] = useState(0);
+  // What the reads have told the list (#3056): `settled` once any read has settled since mount, `lastOk`
+  // for the latest settled read, `busy` while a read is in flight.
+  const [readState, setReadState] = useState({ settled: false, lastOk: false, busy: false });
   const [filtersOpen, setFiltersOpen] = useState(false);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const cardLayout = useMediaQuery(theme.breakpoints.down(cardsBelow));
+  const fromLg = useMediaQuery(theme.breakpoints.up("lg"));
   const [searchParams, setSearchParams] = useSearchParams();
   const pageNumber = Math.max(1, Number(searchParams.get("page")) || 1);
   const selectedLeague = leagueId ? String(leagueId) : "";
@@ -92,6 +101,8 @@ const PlayerPool = forwardRef(function PlayerPool(
   // fetched - never sent to the server, never a fifth Availability segment.
   const watchingOnly = searchParams.get("watching") === "true";
   const search = searchParams.get("q") || "";
+  // The term the shown total was read with (#3081): the count must not name a term whose read is still pending.
+  const [settledSearch, setSettledSearch] = useState(search);
   const byeParam = Number(searchParams.get("bye"));
   const byeWeek = byeWeekFilter && Number.isInteger(byeParam) && byeParam >= 1 && byeParam <= 18 ? byeParam : null;
   const dir = searchParams.get("dir") || "asc";
@@ -102,6 +113,11 @@ const PlayerPool = forwardRef(function PlayerPool(
   const onErrorRef = useRef(onError);
   onLoadedRef.current = onLoaded;
   onErrorRef.current = onError;
+  // The number of the latest read started. A read that settles after a newer one
+  // started sets and reports nothing (#3054).
+  const latestRead = useRef(0);
+  // The list's top: a pager press focuses it after writing `page` (#3057). Only the pager does.
+  const topRef = useRef(null);
 
   // The selected league's own roster template, through the shared league hook
   // (#1419). No league selected reads as an absent template too.
@@ -168,6 +184,8 @@ const PlayerPool = forwardRef(function PlayerPool(
     // loaded, so a request under the fallback template can never race the
     // correctly-filtered one.
     if (selectedLeague && templateNeverLoaded) return;
+    const read = ++latestRead.current;
+    setReadState((state) => ({ ...state, busy: true }));
     try {
       onErrorRef.current?.(null);
       const params = {
@@ -188,16 +206,21 @@ const PlayerPool = forwardRef(function PlayerPool(
       if (search) params.search = search;
       if (byeWeek) params.byeWeeks = String(byeWeek);
       const response = await apiClient.get("/api/players", { params });
+      if (read !== latestRead.current) return;
       const nextPlayers = response.data.players || [];
       setPlayers(nextPlayers);
       setTotalPages(response.data.totalPages || 1);
       setTotalPlayers(response.data.total ?? 0);
+      setSettledSearch(search);
+      setReadState({ settled: true, lastOk: true, busy: false });
       onLoadedRef.current?.({
         players: nextPlayers,
         context: response.data.context || null,
         total: response.data.total ?? 0,
       });
     } catch (err) {
+      if (read !== latestRead.current) return;
+      setReadState({ settled: true, lastOk: false, busy: false });
       onErrorRef.current?.(readHttpFailure(err).message || err.message);
     }
   }, [
@@ -229,7 +252,15 @@ const PlayerPool = forwardRef(function PlayerPool(
   }, [search]);
 
   const currentWeek = players.find((player) => player.projWeek)?.projWeek?.week;
-    const visiblePlayers = watchingOnly ? players.filter((player) => player.watching) : players;
+  const visiblePlayers = watchingOnly ? players.filter((player) => player.watching) : players;
+  // Loading: no read has settled, or a read is in flight with no rows on screen. The skeleton holds the
+  // list then; the empty message and the pager and count wait for a settled read (#3056).
+  const { settled, lastOk, busy } = readState;
+  const loading = !settled || busy;
+  const placeholder = !settled || (busy && visiblePlayers.length === 0);
+  const showEmpty = !placeholder && lastOk && visiblePlayers.length === 0;
+  // Rows only ever come from a successful read, so rows on screen mean one has landed.
+  const showPager = !placeholder && (lastOk || visiblePlayers.length > 0);
   const emptyCopy = emptyCopyOverride && !watchingOnly && !search && !byeWeek
     ? emptyCopyOverride
     : watchingOnly
@@ -269,15 +300,28 @@ const PlayerPool = forwardRef(function PlayerPool(
       renderRow={renderRow}
       renderTableHead={renderTableHead}
       stickyHead={stickyHead}
+      regionClipped={stickyHead && fromLg}
       columnCount={columnCount}
       bestBall={bestBall}
       currentWeek={currentWeek}
       emptyCopy={emptyCopy}
+      loading={loading}
+      placeholder={placeholder}
+      showEmpty={showEmpty}
+      showPager={showPager}
       totalPages={totalPages}
       pageNumber={pageNumber}
-      onPage={(value) => updateParams({ page: value })}
+      onPage={(value) => {
+        updateParams({ page: value });
+        // Pressing the page already shown changes no page, so it moves no focus (#3057).
+        if (value === pageNumber) return;
+        // focus() alone brings a tall list's bottom into view, so the list is scrolled to its top too (#3057).
+        topRef.current?.focus({ preventScroll: true });
+        topRef.current?.scrollIntoView?.({ block: 'start', behavior: 'instant' });
+      }}
+      topRef={topRef}
       totalPlayers={totalPlayers}
-      search={search}
+      search={settledSearch}
     />
   );
 });

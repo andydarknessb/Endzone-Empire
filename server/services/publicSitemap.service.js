@@ -46,6 +46,7 @@ const STATIC_PUBLIC_PATHS = [
   '/strategy/week9-start-sit-darkness-report',
   '/strategy/week10-start-sit-darkness-report',
   '/strategy/week11-start-sit-darkness-report',
+  '/strategy/week12-start-sit-darkness-report',
   '/recaps',
 ];
 
