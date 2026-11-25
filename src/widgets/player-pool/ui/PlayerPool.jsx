@@ -101,6 +101,8 @@ const PlayerPool = forwardRef(function PlayerPool(
   // fetched - never sent to the server, never a fifth Availability segment.
   const watchingOnly = searchParams.get("watching") === "true";
   const search = searchParams.get("q") || "";
+  // The term the shown total was read with (#3081): the count must not name a term whose read is still pending.
+  const [settledSearch, setSettledSearch] = useState(search);
   const byeParam = Number(searchParams.get("bye"));
   const byeWeek = byeWeekFilter && Number.isInteger(byeParam) && byeParam >= 1 && byeParam <= 18 ? byeParam : null;
   const dir = searchParams.get("dir") || "asc";
@@ -209,6 +211,7 @@ const PlayerPool = forwardRef(function PlayerPool(
       setPlayers(nextPlayers);
       setTotalPages(response.data.totalPages || 1);
       setTotalPlayers(response.data.total ?? 0);
+      setSettledSearch(search);
       setReadState({ settled: true, lastOk: true, busy: false });
       onLoadedRef.current?.({
         players: nextPlayers,
@@ -318,7 +321,7 @@ const PlayerPool = forwardRef(function PlayerPool(
       }}
       topRef={topRef}
       totalPlayers={totalPlayers}
-      search={search}
+      search={settledSearch}
     />
   );
 });

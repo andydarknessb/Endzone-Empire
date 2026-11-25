@@ -244,3 +244,34 @@ test("ref.refresh() starts a read that supersedes the one before it", async () =
   expect(screen.queryByText("Joe Burrow")).not.toBeInTheDocument();
   expect(screen.getByText("1 player")).toBeInTheDocument();
 });
+
+// #3081: the count status names the term its total was read with, not the term typed since.
+test("while a newer search is pending, the count keeps the last settled term and total", async () => {
+  const held = deferred();
+  apiClient.get.mockImplementation((url, { params }) =>
+    params.search === "smith" ? held.promise : Promise.resolve(page([josh], 47)),
+  );
+  renderPool();
+  expect(await screen.findByText("Josh Allen")).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent(/^47 players$/);
+  fireEvent.change(screen.getByRole("textbox", { name: "Search this list" }), { target: { value: "smith" } });
+  await waitFor(() => expect(playerReads()).toHaveLength(2));
+  expect(screen.getByRole("status").textContent).toBe("47 players");
+  expect(screen.getByText("Josh Allen")).toBeInTheDocument();
+  await act(async () => held.resolve(page([josh], 3)));
+  expect(screen.getByRole("status").textContent).toBe("3 players matching “smith”");
+});
+
+test("a failed search read leaves the count on the last settled term", async () => {
+  const held = deferred();
+  apiClient.get.mockImplementation((url, { params }) =>
+    params.search === "smith" ? held.promise : Promise.resolve(page([josh], 47)),
+  );
+  renderPool();
+  expect(await screen.findByText("Josh Allen")).toBeInTheDocument();
+  fireEvent.change(screen.getByRole("textbox", { name: "Search this list" }), { target: { value: "smith" } });
+  await waitFor(() => expect(playerReads()).toHaveLength(2));
+  await act(async () => held.reject(new Error("boom")));
+  expect(screen.getByRole("status").textContent).toBe("47 players");
+  expect(screen.getByText("Josh Allen")).toBeInTheDocument();
+});
