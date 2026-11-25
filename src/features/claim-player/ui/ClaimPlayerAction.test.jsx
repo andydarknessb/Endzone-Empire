@@ -76,6 +76,25 @@ test('focusing then blurring an empty bid marks it invalid', async () => {
   expect(screen.getByText('Enter a whole-dollar bid between $0 and $42')).toBeInTheDocument();
 });
 
+test('a new player opens with an empty, untouched bid field', async () => {
+  const availability = { faabRemaining: 42 };
+  const { rerender } = renderAction({ availability });
+
+  await userEvent.type(screen.getByLabelText('Bid'), '50');
+  await userEvent.tab();
+  expect(screen.getByLabelText('Bid')).toHaveAttribute('aria-invalid', 'true');
+
+  rerender(
+    <SnackbarProvider>
+      <ClaimPlayerAction player={{ playerId: 8, name: 'Next Guy' }} leagueId={1} onClaimed={jest.fn()} availability={availability} />
+    </SnackbarProvider>
+  );
+
+  expect(screen.getByLabelText('Bid')).toHaveValue(null);
+  expect(screen.getByLabelText('Bid')).toHaveAttribute('aria-invalid', 'false');
+  expect(screen.getByText('$42 remaining')).toBeInTheDocument();
+});
+
 test('typing then clearing the bid leaves it invalid with the range sentence', async () => {
   renderAction({ availability: { faabRemaining: 42 } });
 

@@ -26,6 +26,13 @@ export default function ClaimPlayerAction({
   const [dropPlayerId, setDropPlayerId] = useState('');
   const [bid, setBid] = useState('');
   const [bidTouched, setBidTouched] = useState(false);
+  // The Players page swaps `player` in place, so a new player starts with an empty, untouched bid.
+  const [bidPlayerId, setBidPlayerId] = useState(player.playerId);
+  if (bidPlayerId !== player.playerId) {
+    setBidPlayerId(player.playerId);
+    setBid('');
+    setBidTouched(false);
+  }
   const { submitClaim, pending } = useClaimPlayer({ leagueId, onDone: onClaimed });
 
   const isFaab = availability?.faabRemaining != null;
