@@ -258,6 +258,7 @@ describe('the phone filter summary (#3094)', () => {
     expect(screen.getByTestId('player-pool-filter-summary')).toHaveTextContent('WR, On waivers');
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
+    expect(screen.getByTestId('player-pool-top')).toHaveFocus();
     await screen.findByRole('button', { name: 'Filters' });
     const params = urlParams();
     expect(params.get('q')).toBe('jo');
