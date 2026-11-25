@@ -69,6 +69,16 @@ test('stickyHead changes the scroll region and the table markup, and without it 
   expect(screen.getByRole('table', { name: 'Players' }).className).not.toBe(plain.table);
 });
 
+// #3072: with more than one page the count names the page, so a page change reads out (the status text is the same otherwise).
+test('the count names the page once there is more than one', async () => {
+  apiClient.get.mockResolvedValue({ data: { players: [player], totalPages: 3, total: 25, context: null } });
+  renderPool();
+  await screen.findByText('Patrick Mahomes');
+  expect(screen.getByRole('status').textContent).toBe('Page 1 of 3, 25 players');
+  fireEvent.click(screen.getByRole('button', { name: 'Go to page 2' }));
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Page 2 of 3, 25 players'));
+});
+
 // #3057: the pager moves focus to the list top once the page param is written; the filters do not.
 test('pressing Go to page 2 focuses the list top, and changing Position leaves focus on the select', async () => {
   apiClient.get.mockResolvedValue({ data: { players: [player], totalPages: 3, total: 25, context: null } });
