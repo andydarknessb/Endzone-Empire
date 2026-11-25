@@ -11,7 +11,9 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { setTheme } from './fixtures/draftHarness';
-import { setupPlayersPageLayout, PLAYERS_LAYOUT_URL, PLAYERS_LAYOUT_LEAGUE_NAME } from './fixtures/playersPageLayoutFixtures';
+import {
+  setupPlayersPageLayout, PLAYERS_LAYOUT_URL, PLAYERS_LAYOUT_LEAGUE_ID, PLAYERS_LAYOUT_LEAGUE_NAME,
+} from './fixtures/playersPageLayoutFixtures';
 
 const DESKTOP = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844 };
@@ -485,16 +487,18 @@ test('390x844: the pager of forty pages sits on one row, every button and the el
 });
 
 // #3088: the phone pager holds one row down to 360 px at 63 pages (the live list: 1,561 players at 25 a page).
-// The page is in the URL, so the middle and last pages are reached by `?page=`.
+// PlayerManagement rewrites a URL without `league` to page 1, so each case names the fixture league and asserts the page reached.
 const PHONE_375 = { width: 375, height: 844 };
 const PHONE_360 = { width: 360, height: 800 };
+const pagerUrl = (pageNumber: number) => `${PLAYERS_LAYOUT_URL}?league=${PLAYERS_LAYOUT_LEAGUE_ID}&page=${pageNumber}`;
 for (const [name, viewport] of [['375x844', PHONE_375], ['360x800', PHONE_360]] as const) {
-  for (const [label, query] of [['page 1', ''], ['page 32', '?page=32'], ['page 63', '?page=63']] as const) {
-    test(`${name}: the pager of 63 pages sits on one row on ${label}`, async ({ page }) => {
+  for (const pageNumber of [1, 32, 61, 62, 63]) {
+    test(`${name}: the pager of 63 pages sits on one row on page ${pageNumber}`, async ({ page }) => {
       await setupPlayersPageLayout(page, { pages: 63 });
       await page.setViewportSize(viewport);
-      await page.goto(`${PLAYERS_LAYOUT_URL}${query}`);
-      await expect(page.getByRole('button', { name: 'Go to next page' })).toBeVisible();
+      await page.goto(pagerUrl(pageNumber));
+      await expect(page.getByRole('button', { name: `page ${pageNumber}`, exact: true })).toHaveAttribute('aria-current', 'page');
+      await page.evaluate(() => document.fonts.ready.then(() => true));
       const tops = await page.locator('.MuiPagination-ul > li > *').evaluateAll((items) => items.map((item) => item.getBoundingClientRect().top));
       expect(tops.length, 'the pager has items').toBeGreaterThan(0);
       expect(Math.max(...tops) - Math.min(...tops), `pager tops ${JSON.stringify(tops)}`).toBeLessThanOrEqual(1);
@@ -502,14 +506,15 @@ for (const [name, viewport] of [['375x844', PHONE_375], ['360x800', PHONE_360]] 
   }
 }
 
-test('360x800: every pager button is 44px wide and 44px tall at 63 pages', async ({ page }) => {
+test('360x800: every pager button is at least 44px wide and tall at 63 pages', async ({ page }) => {
   await setupPlayersPageLayout(page, { pages: 63 });
   await page.setViewportSize(PHONE_360);
-  await page.goto(PLAYERS_LAYOUT_URL);
-  await expect(page.getByRole('button', { name: 'Go to next page' })).toBeVisible();
+  await page.goto(pagerUrl(63));
+  await expect(page.getByRole('button', { name: 'page 63', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.evaluate(() => document.fonts.ready.then(() => true));
   const sizes = await page.locator('.MuiPagination-ul > li > button').evaluateAll((items) => items.map((item) => {
     const box = item.getBoundingClientRect();
-    return { width: Math.round(box.width), height: Math.round(box.height) };
+    return { width: box.width, height: box.height };
   }));
   expect(sizes.length, 'the pager has buttons').toBeGreaterThan(0);
   expect(sizes.filter((s) => s.width < 44 || s.height < 44), `pager button sizes ${JSON.stringify(sizes)}`).toEqual([]);
