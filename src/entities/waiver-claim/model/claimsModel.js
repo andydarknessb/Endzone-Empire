@@ -136,3 +136,15 @@ export function claimsFromResponse(data, { now = new Date() } = {}) {
 
   return { pending, sharedDrops, results, resultsByWeek, nextClearTime, nextClear, waiverPriority, faab };
 }
+
+/**
+ * The player-to-order map of pending claims: each claim's Claim order (its list position when the read carries
+ * none), keyed by player id. A claim with no player is left out.
+ */
+export function claimOrderMap(pending) {
+  const map = new Map();
+  pending.forEach((claim, index) => {
+    if (claim.playerId != null) map.set(claim.playerId, claim.claimOrder ?? index + 1);
+  });
+  return map;
+}

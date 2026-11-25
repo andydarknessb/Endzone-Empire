@@ -14,7 +14,7 @@ import {
   useEndpoint, isRosterAtCapacity, formatPoints, useNow,
 } from '../../shared/lib';
 import {
-  useWaiverClaims, readClaimTarget, nextClaimRow, clearsUnderHour,
+  useWaiverClaims, readClaimTarget, nextClaimRow, clearsUnderHour, claimOrderMap,
 } from '../../entities/waiver-claim';
 import { lineupModel } from '../../entities/roster';
 import { toDecisionCardEntry } from '../../entities/player';
@@ -235,13 +235,7 @@ export default function WaiversPage() {
     onDone: refreshAfterAction,
   });
 
-  const claimOrderByPlayer = useMemo(() => {
-    const map = new Map();
-    claims.pending.forEach((claim, index) => {
-      if (claim.playerId != null) map.set(claim.playerId, claim.claimOrder ?? index + 1);
-    });
-    return map;
-  }, [claims.pending]);
+  const claimOrderByPlayer = useMemo(() => claimOrderMap(claims.pending), [claims.pending]);
 
   const ownershipKnown = players.some((player) => {
     const value = typeof player.ownership === 'number' ? player.ownership : player.ownership?.share;

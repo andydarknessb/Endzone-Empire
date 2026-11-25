@@ -326,12 +326,12 @@ test("renders the server-authoritative availability actions, state-driven", asyn
   renderWithProviders(<PlayerManagement />);
 
   expect(
-    await screen.findByRole("button", { name: "Claim" }),
+    await screen.findByRole("button", { name: "Claim On Waivers" }),
   ).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Drop My Starter" })).toBeEnabled();
   expect(screen.queryByRole("link", { name: "Lineup" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Rostered" })).not.toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Trade" })).toBeEnabled();
+  expect(screen.getByRole("link", { name: "Trade for Rival Player" })).toBeEnabled();
   expect(
     screen.getAllByRole("button", { name: "Add Free Agent" }),
   ).toHaveLength(1);
@@ -373,7 +373,7 @@ test("a rostered row's Trade action deep-links into TradeCenter with the owning 
   });
   renderWithProviders(<PlayerManagement />);
 
-  expect(await screen.findByRole("link", { name: "Trade" })).toHaveAttribute(
+  expect(await screen.findByRole("link", { name: "Trade for Rival Player" })).toHaveAttribute(
     "href",
     "/league/1/trades?receivingTeamId=9&playerId=4",
   );
@@ -389,7 +389,7 @@ test("priority league: Claim submits a waiver claim directly, through the same c
   apiClient.post.mockResolvedValue({});
   renderWithProviders(<PlayerManagement />);
 
-  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Claim On Waivers" }));
 
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith("/api/waivers/claim", {
@@ -399,6 +399,66 @@ test("priority league: Claim submits a waiver claim directly, through the same c
       bid: 0,
     }),
   );
+});
+
+// #3091: a waivers row whose player is one of the manager's pending claims reads "Claim #n", a link to the
+// Waivers page with the Waivers page's own helper, in priority and FAAB leagues alike.
+test("a waivers row claimed by the manager reads Claim #1 as a link to the Waivers page, in a priority league (#3091)", async () => {
+  mockBrowser({
+    leagues: [priorityLeague],
+    players: [
+      player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+    ],
+    myClaims: [{ id: 7, status: "pending", player_id: 2, player_name: "On Waivers", claim_order: 1 }],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  const link = await screen.findByRole("link", { name: "Claim #1 On Waivers" });
+  expect(link).toHaveAttribute("href", "/league/1/waivers");
+  expect(link).toHaveAccessibleDescription("You already have a pending claim on this player.");
+  expect(screen.queryByRole("button", { name: "Claim On Waivers" })).not.toBeInTheDocument();
+});
+
+test("a waivers row claimed by the manager reads Claim #1 as a link to the Waivers page, in a FAAB league (#3091)", async () => {
+  mockBrowser({
+    players: [
+      player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+    ],
+    myClaims: [{ id: 7, status: "pending", player_id: 2, player_name: "On Waivers", claim_order: 1 }],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  expect(await screen.findByRole("link", { name: "Claim #1 On Waivers" })).toHaveAttribute("href", "/league/1/waivers");
+  expect(screen.queryByRole("button", { name: "Claim On Waivers" })).not.toBeInTheDocument();
+});
+
+test("after a row Claim, the next pending-claims read turns that row into the Claim #1 link without a reload (#3091)", async () => {
+  mockBrowser({
+    leagues: [priorityLeague],
+    players: [
+      player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+    ],
+    claimsAfterAction: [{ id: 7, status: "pending", player_id: 2, player_name: "On Waivers", claim_order: 1 }],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Claim On Waivers" }));
+
+  expect(await screen.findByRole("link", { name: "Claim #1 On Waivers" })).toHaveAttribute("href", "/league/1/waivers");
+});
+
+// #3091: the Claim button and the rostered row's Trade link name their player, as Add and Drop already do.
+test("a waivers row's Claim and a rostered row's Trade name their player (#3091)", async () => {
+  mockBrowser({
+    players: [
+      player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+      player({ id: 4, name: "Rival Player", availability: { state: "rostered", teamId: 9, teamName: "Rival Squad", availableAt: null } }),
+    ],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  expect(await screen.findByRole("button", { name: "Claim On Waivers" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Trade for Rival Player" })).toBeInTheDocument();
 });
 
 // #1576: in a FAAB league a one-tap claim would silently post a $0 bid that
@@ -412,7 +472,7 @@ test("FAAB league: the row's Claim opens the Decision card claim action and does
   });
   renderWithProviders(<PlayerManagement />);
 
-  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Claim On Waivers" }));
 
   expect(await screen.findByTestId("claim-player-action")).toBeInTheDocument();
   expect(apiClient.post).not.toHaveBeenCalled();
@@ -449,7 +509,7 @@ test("Pending claims count increments after a successful row claim without a rel
   renderWithProviders(<PlayerManagement />);
   expect(await screen.findByRole("link", { name: "Pending claims (1)" })).toBeInTheDocument();
 
-  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Claim On Waivers" }));
 
   expect(await screen.findByRole("link", { name: "Pending claims (2)" })).toBeInTheDocument();
 });
@@ -467,7 +527,7 @@ test("Pending claims count moves after a claim submitted from the at-capacity De
   renderWithProviders(<PlayerManagement />);
   expect(await screen.findByRole("link", { name: "Pending claims (1)" })).toBeInTheDocument();
 
-  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Claim On Waivers" }));
   const action = await screen.findByTestId("claim-player-action");
   await userEvent.click(within(action).getByLabelText("Drop a player"));
   await userEvent.click((await screen.findAllByRole("option"))[1]);
@@ -490,7 +550,7 @@ test("Pending claims link keeps the prior count while the post-action re-read is
   renderWithProviders(<PlayerManagement />);
   expect(await screen.findByRole("link", { name: "Pending claims (1)" })).toBeInTheDocument();
 
-  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Claim On Waivers" }));
 
   // While the refresh read is in flight (deferred), the link should still show the prior count
   expect(screen.getByRole("link", { name: "Pending claims (1)" })).toBeInTheDocument();
@@ -515,7 +575,7 @@ test("Pending claims link keeps the last known count after a failed re-read (#16
   renderWithProviders(<PlayerManagement />);
   expect(await screen.findByRole("link", { name: "Pending claims (1)" })).toBeInTheDocument();
 
-  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Claim On Waivers" }));
 
   // Wait for the post-action re-read (the `&r=` URL) to be issued and to reject,
   // then let the rejection settle into the endpoint's error state before asserting.
@@ -551,7 +611,7 @@ test("at roster capacity, the row's Claim opens the Decision card claim bar inst
   });
   renderWithProviders(<PlayerManagement />);
 
-  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Claim On Waivers" }));
 
   const action = await screen.findByTestId("claim-player-action");
   expect(apiClient.post).not.toHaveBeenCalled();
@@ -577,15 +637,15 @@ test("formal-1310-f3: only the tapped row's Claim goes busy, not every waivers r
   });
   renderWithProviders(<PlayerManagement />);
 
-  const claimButtons = await screen.findAllByRole("button", { name: "Claim" });
+  const claimButtons = await screen.findAllByRole("button", { name: /^Claim / });
   expect(claimButtons).toHaveLength(2);
   await userEvent.click(claimButtons[0]);
 
-  expect(await screen.findByRole("button", { name: "Claiming…" })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Claim" })).toBeEnabled();
+  expect(await screen.findByRole("button", { name: "Claiming First Waiver" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Claim Second Waiver" })).toBeEnabled();
 
   resolvePost({});
-  await waitFor(() => expect(screen.getAllByRole("button", { name: "Claim" })).toHaveLength(2));
+  await waitFor(() => expect(screen.getAllByRole("button", { name: /^Claim / })).toHaveLength(2));
 });
 
 test("adds a Free agent then refreshes the server-authoritative browser state", async () => {
@@ -954,7 +1014,7 @@ test("a refused row Claim in a priority league is reported once, in the toast, n
   apiClient.post.mockRejectedValue(refusedWith);
   renderWithProviders(<SnackbarProvider><PlayerManagement /></SnackbarProvider>);
 
-  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Claim On Waivers" }));
 
   await waitFor(() => expect(screen.getByTestId("toast-alert")).toHaveTextContent(REFUSAL));
   expect(screen.queryAllByRole("alert").some((el) => el.textContent.includes(REFUSAL))).toBe(false);
