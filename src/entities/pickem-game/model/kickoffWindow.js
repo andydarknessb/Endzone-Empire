@@ -1,6 +1,6 @@
 /**
  * Kickoff window grouping (ADR 0038's "What to build"; CONTEXT.md's Kickoff
- * window): a pure function grouping a week's games into the five windows the
+ * window): a pure function grouping a week's games into the windows the
  * board shows, in order. Windows are computed from the league's own
  * scheduling clock (US Eastern, the zone every NFL broadcast slot is set in)
  * rather than the viewer's runtime zone, so two managers in different zones
@@ -11,22 +11,28 @@
 const SCHEDULE_ZONE = 'America/New_York';
 
 export const KICKOFF_WINDOWS = [
+  'wednesday',
   'thursday-night',
+  'friday',
+  'saturday',
   'sunday-early',
   'sunday-late',
   'sunday-night',
   'monday-night',
+  'tuesday',
 ];
+
+const DAY_WINDOWS = { Tue: 'tuesday', Wed: 'wednesday', Fri: 'friday', Sat: 'saturday' };
 
 const WEEKDAY_FORMAT = new Intl.DateTimeFormat('en-US', { timeZone: SCHEDULE_ZONE, weekday: 'short' });
 const HOUR_FORMAT = new Intl.DateTimeFormat('en-US', { timeZone: SCHEDULE_ZONE, hour: 'numeric', hour12: false });
 
 /**
- * One of `KICKOFF_WINDOWS`, or null when the kickoff is unparseable or falls
- * on a day the board has no window for (the glossary names exactly these
- * five). The classification reads the kickoff instant through the
- * `America/New_York` zone explicitly, so it is the same regardless of the
- * caller's own runtime zone.
+ * One of `KICKOFF_WINDOWS`, or null only when the kickoff is missing or
+ * unparseable. The five broadcast windows are named by slot; any other day
+ * groups under its own day (`DAY_WINDOWS`). The classification reads the
+ * kickoff instant through the `America/New_York` zone explicitly, so it is
+ * the same regardless of the caller's own runtime zone.
  */
 export function kickoffWindowFor(kickoffAt) {
   if (kickoffAt == null || kickoffAt === '') return null;
@@ -36,7 +42,7 @@ export function kickoffWindowFor(kickoffAt) {
   const weekday = WEEKDAY_FORMAT.format(date);
   if (weekday === 'Thu') return 'thursday-night';
   if (weekday === 'Mon') return 'monday-night';
-  if (weekday !== 'Sun') return null;
+  if (weekday !== 'Sun') return DAY_WINDOWS[weekday] ?? null;
 
   const hour = Number(HOUR_FORMAT.format(date));
   if (hour < 16) return 'sunday-early';
@@ -46,9 +52,8 @@ export function kickoffWindowFor(kickoffAt) {
 
 /**
  * Groups `games` (any object carrying a `kickoff` or `kickoffAt` field) into
- * the five windows, in the glossary's order, omitting a window with no games
- * this week. A game with no parseable kickoff is dropped rather than
- * crashing the board.
+ * the windows, in week order, omitting a window with no games this week. A
+ * game with no parseable kickoff is dropped rather than crashing the board.
  */
 export function groupByKickoffWindow(games) {
   const buckets = new Map();

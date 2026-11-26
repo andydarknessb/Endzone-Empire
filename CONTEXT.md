@@ -346,8 +346,11 @@ _Avoid_: game time, start time
 
 **Kickoff window**:
 The games on a slate that share a kickoff time, read as a group: Thursday
-night, Sunday early, Sunday late, Sunday night, Monday night. The board groups
-picks by it, and "the window locks" means every game in it has kicked off.
+night, Sunday early, Sunday late, Sunday night, Monday night. A game on any
+other day (Thanksgiving Eve, Black Friday, a late-season Saturday) groups
+under its day: Tuesday, Wednesday, Friday, Saturday. The board groups picks
+by it in week order, and "the window locks" means every game in it has
+kicked off.
 _Avoid_: slot, wave, time slot
 
 **Bye week**:
