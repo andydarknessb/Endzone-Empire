@@ -96,6 +96,20 @@ test('defaults the week to the league\'s own current week and groups games by ki
   expect(result.current.windows.map((group) => group.window)).toEqual(['sunday-early', 'sunday-late']);
 });
 
+test('a Wednesday and a Friday game each get their own day window, in week order', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/pickem/league/1/week/3': weekResponse({
+      games: [game('GB|LAR', '2026-11-26T01:00:00.000Z'), game('DEN|PIT', '2026-11-27T20:00:00.000Z')],
+    }),
+  });
+  const { result } = renderHook(() => useBoardPresenter(LEAGUE_ID));
+
+  await waitFor(() => expect(result.current.slateSize).toBe(2));
+  expect(result.current.windows.map((group) => group.window)).toEqual(['wednesday', 'friday']);
+  expect(result.current.windows.flatMap((group) => group.games.map((view) => view.gameKey))).toEqual(['GB|LAR', 'DEN|PIT']);
+});
+
 test('the cursor is the earliest unlocked unpicked game, and the status counts picked, open and the next lock', async () => {
   mockGetByUrl({
     '/api/league/1': leagueResponse(),
