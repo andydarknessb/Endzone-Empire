@@ -37,7 +37,7 @@ function nextLockWordChange(games, now) {
  *   - `useLeague` (the shared league resource every island widget already reads directly) for the
  *     league's own team count: the "M" in "N of M managers have picked".
  *   - `entities/pickem-game`'s `usePickemWeek` for the week's slate, picks and reveal,
- *     `groupByKickoffWindow` for the five windows and `nextPickGame` for the cursor.
+ *     `groupByKickoffWindow` for the kickoff windows and `nextPickGame` for the cursor.
  *   - `save-picks`'s `useSavePicks` for the per-tap save, its words (Saving, Pick saved and Undo,
  *     Retry) and the confidence swap.
  *   - `model/gameCardView` to turn each wire game into what GameCard renders, with the clock that
