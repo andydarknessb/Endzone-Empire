@@ -11,7 +11,7 @@ import { StarIcon } from './parts';
  * frame, its h3 the window label (under the page's "Picks" h2), its GameCards rows inside it with 2px
  * Rule dividers. The grouping itself is `entities/pickem-game`'s `groupByKickoffWindow` (ADR 0038:
  * "Do not reimplement... grouping" - the entity groups, this renders one group); this component only
- * knows how to label the five windows CONTEXT.md names (Kickoff window) and lay their cards out.
+ * knows how to label the windows CONTEXT.md names (Kickoff window) and lay their cards out.
  *
  * The head says "League picks reveal at kickoff" once for the window (the cards no longer repeat it),
  * and, in confidence mode while an open game still lacks a pick, the one hint ("Pick a team to set its
@@ -23,11 +23,15 @@ import { StarIcon } from './parts';
  * toggle (`aria-expanded`), collapsed by default. A window with an open game renders its cards.
  */
 const WINDOW_LABELS = {
+  wednesday: 'Wednesday',
   'thursday-night': 'Thursday Night',
+  friday: 'Friday',
+  saturday: 'Saturday',
   'sunday-early': 'Sunday Early',
   'sunday-late': 'Sunday Late',
   'sunday-night': 'Sunday Night',
   'monday-night': 'Monday Night',
+  tuesday: 'Tuesday',
 };
 
 function summaryOf(views) {
