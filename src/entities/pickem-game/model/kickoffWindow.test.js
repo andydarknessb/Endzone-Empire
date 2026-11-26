@@ -79,15 +79,17 @@ describe('groupByKickoffWindow', () => {
   test('a game on any other day groups under its day, in week order, and none is dropped', () => {
     const games = [
       { gameKey: 'SUN_NIGHT', kickoffAt: '2026-11-30T01:20:00.000Z' }, // Sun 8:20pm ET
+      { gameKey: 'TUE', kickoffAt: '2026-12-01T18:00:00.000Z' }, // Tue 1pm ET
       { gameKey: 'FRI', kickoffAt: '2026-11-27T20:00:00.000Z' }, // Fri 3pm ET
+      { gameKey: 'SAT', kickoffAt: '2026-11-28T18:00:00.000Z' }, // Sat 1pm ET
       { gameKey: 'THU', kickoffAt: '2026-11-26T18:00:00.000Z' }, // Thu 1pm ET, grouped as thursday-night
       { gameKey: 'WED', kickoffAt: '2026-11-26T01:00:00.000Z' }, // Wed 8pm ET
       { gameKey: 'SUN_EARLY', kickoffAt: '2026-11-29T18:00:00.000Z' }, // Sun 1pm ET
       { gameKey: 'MON', kickoffAt: '2026-12-01T01:15:00.000Z' }, // Mon 8:15pm ET
     ];
     const groups = groupByKickoffWindow(games);
-    expect(groups.map((group) => group.window)).toEqual(['wednesday', 'thursday-night', 'friday', 'sunday-early', 'sunday-night', 'monday-night']);
-    expect(groups.reduce((total, group) => total + group.games.length, 0)).toBe(6);
+    expect(groups.map((group) => group.window)).toEqual(['wednesday', 'thursday-night', 'friday', 'saturday', 'sunday-early', 'sunday-night', 'monday-night', 'tuesday']);
+    expect(groups.reduce((total, group) => total + group.games.length, 0)).toBe(8);
   });
 
   test('a game with no parseable kickoff is dropped rather than crashing', () => {

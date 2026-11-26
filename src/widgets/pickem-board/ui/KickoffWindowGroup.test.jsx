@@ -48,9 +48,14 @@ test('labels the window as a tertiary frame whose h3 names it, with one card per
   expect(screen.getAllByTestId('game-card')).toHaveLength(2);
 });
 
-test('a wednesday window is labelled Wednesday in its h3', () => {
-  render(<KickoffWindowGroup window="wednesday" views={[view('GB|LAR')]} mode="straight" totalManagers={10} />);
-  expect(screen.getByRole('heading', { level: 3, name: 'Wednesday' })).toBeInTheDocument();
+test.each([
+  ['wednesday', 'Wednesday'],
+  ['friday', 'Friday'],
+  ['saturday', 'Saturday'],
+  ['tuesday', 'Tuesday'],
+])('a %s window is labelled %s in its h3', (windowKey, label) => {
+  render(<KickoffWindowGroup window={windowKey} views={[view('GB|LAR')]} mode="straight" totalManagers={10} />);
+  expect(screen.getByRole('heading', { level: 3, name: label })).toBeInTheDocument();
 });
 
 test('an unrecognized window key falls back to its own raw label', () => {

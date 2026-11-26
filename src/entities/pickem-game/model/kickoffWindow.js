@@ -10,6 +10,7 @@
 
 const SCHEDULE_ZONE = 'America/New_York';
 
+// shortcut: fixed week order puts a game postponed to the Wednesday after Monday night first, sort groups by earliest kickoff if the NFL moves one.
 export const KICKOFF_WINDOWS = [
   'wednesday',
   'thursday-night',
